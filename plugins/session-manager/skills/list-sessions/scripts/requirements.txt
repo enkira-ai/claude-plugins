@@ -1,2 +1,0 @@
-# Add future pip dependencies here.
-# Currently uses only Python stdlib — this file exists for extensibility.

@@ -10,7 +10,7 @@ Rename any Claude Code session by ID without resuming it. Accepts full or short 
 ## Usage
 
 ```bash
-python3 ${CLAUDE_SKILL_DIR}/scripts/rename-session.py <session-id> <new-name>
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/run-python.sh ${CLAUDE_SKILL_DIR}/scripts/rename-session.py <session-id> <new-name>
 ```
 
 Display the confirmation message from the script. If the user hasn't provided a session ID or name, ask for them.

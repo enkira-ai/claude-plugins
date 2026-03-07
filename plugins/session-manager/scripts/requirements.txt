@@ -1,0 +1,2 @@
+# Shared dependencies for all session-manager skills.
+# Add future pip packages here — they apply to all skills.
