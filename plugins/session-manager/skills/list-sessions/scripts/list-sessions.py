@@ -11,7 +11,7 @@ CLAUDE_DIR = Path.home() / ".claude"
 HISTORY_FILE = CLAUDE_DIR / "history.jsonl"
 
 # Commands that should be ignored as user messages
-IGNORED_PREFIXES = ("/rename", "/compact", "/login", "/plugin", "/init", "exit")
+IGNORED_PREFIXES = ("/rename", "/compact", "/login", "/plugin", "/init", "/session-manager", "exit")
 
 
 def load_sessions():
