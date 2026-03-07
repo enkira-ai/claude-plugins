@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""List all Claude Code sessions from history.jsonl with last access date, ID, and name."""
+"""List all Claude Code sessions from history.jsonl with last access date, ID, name, and last message."""
 
 import json
-import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 CLAUDE_DIR = Path.home() / ".claude"
 HISTORY_FILE = CLAUDE_DIR / "history.jsonl"
+
+# Commands that should be ignored as user messages
+IGNORED_PREFIXES = ("/rename", "/compact", "/login", "/plugin", "/init", "exit")
 
 
 def load_sessions():
@@ -30,26 +33,36 @@ def load_sessions():
                 continue
 
             ts = obj.get("timestamp")
-            display = str(obj.get("display", ""))
+            display = str(obj.get("display", "")).strip()
             project = str(obj.get("project", ""))
 
             if sid not in sessions:
                 sessions[sid] = {
                     "first_ts": ts,
                     "last_ts": ts,
-                    "display": display,
+                    "name": "",
+                    "last_message": "",
                     "project": project,
                 }
-            else:
-                entry = sessions[sid]
-                if ts is not None:
-                    if entry["last_ts"] is None or ts > entry["last_ts"]:
-                        entry["last_ts"] = ts
-                    if entry["first_ts"] is None or ts < entry["first_ts"]:
-                        entry["first_ts"] = ts
-                # Keep the first non-empty display
-                if not entry["display"] and display:
-                    entry["display"] = display
+
+            entry = sessions[sid]
+
+            # Track timestamps
+            if ts is not None:
+                if entry["last_ts"] is None or ts > entry["last_ts"]:
+                    entry["last_ts"] = ts
+                if entry["first_ts"] is None or ts < entry["first_ts"]:
+                    entry["first_ts"] = ts
+
+            # Extract session name from /rename commands (use the last one)
+            rename_match = re.match(r"^/rename\s+(.+)$", display)
+            if rename_match:
+                entry["name"] = rename_match.group(1).strip()
+                continue
+
+            # Track last non-command user message
+            if display and not any(display.startswith(p) for p in IGNORED_PREFIXES):
+                entry["last_message"] = display
 
     return sessions
 
@@ -73,6 +86,11 @@ def shorten_project(project):
     return project
 
 
+def escape_pipes(text):
+    """Escape pipe characters for markdown tables."""
+    return text.replace("|", "\\|")
+
+
 def main():
     sessions = load_sessions()
 
@@ -88,18 +106,16 @@ def main():
     )
 
     # Print markdown table
-    print("| Last Access      | Session ID (short) | Full Session ID                          | Project              | Name / First Message          |")
-    print("|------------------|--------------------|------------------------------------------|----------------------|-------------------------------|")
+    print("| Last Access      | Session ID | Full Session ID                          | Project              | Name             | Last Message                  |")
+    print("|------------------|------------|------------------------------------------|----------------------|------------------|-------------------------------|")
 
     for sid, info in sorted_sessions:
         last = format_ts(info["last_ts"])
         short_id = sid[:8]
-        project = shorten_project(info["project"])
-        display = info["display"][:50] if info["display"] else "(no name)"
-        # Escape pipes in display
-        display = display.replace("|", "\\|")
-        project = project.replace("|", "\\|")
-        print(f"| {last:<16} | `{short_id}` | `{sid}` | {project:<20} | {display} |")
+        project = escape_pipes(shorten_project(info["project"]))
+        name = escape_pipes(info["name"][:30]) if info["name"] else ""
+        last_msg = escape_pipes(info["last_message"][:50]) if info["last_message"] else ""
+        print(f"| {last:<16} | `{short_id}` | `{sid}` | {project:<20} | {name:<16} | {last_msg} |")
 
     print()
     print(f"**Total sessions:** {len(sorted_sessions)}")
