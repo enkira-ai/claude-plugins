@@ -1,6 +1,6 @@
 ---
 name: list-sessions
-description: This skill should be used when the user asks to "list sessions", "show sessions", "view past sessions", "session history", "list chats", "show my conversations", "rename session", "rename a session", or wants to see or manage their Claude Code chat session history.
+description: This skill should be used when the user asks to "list sessions", "show sessions", "view past sessions", "session history", "list chats", "show my conversations", or wants to see their Claude Code chat session history.
 ---
 
 # List Claude Code Sessions
@@ -34,12 +34,3 @@ bash ${CLAUDE_SKILL_DIR}/scripts/setup.sh
 
 Add any future pip dependencies to `${CLAUDE_SKILL_DIR}/scripts/requirements.txt` and re-run setup.
 
-## Renaming Sessions
-
-Rename any session by ID without resuming it:
-
-```bash
-python3 ${CLAUDE_SKILL_DIR}/scripts/rename-session.py <session-id> <new-name>
-```
-
-Accepts full or short (8-char) session IDs.
