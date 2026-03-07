@@ -9,10 +9,10 @@ Display a summary table of all Claude Code chat sessions on the current machine.
 
 ## Usage
 
-Run the session listing script and display the output directly:
+Run the session listing script via the venv runner. The runner auto-creates a virtual environment on first use:
 
 ```bash
-python3 ${CLAUDE_SKILL_DIR}/scripts/list-sessions.py
+bash ${CLAUDE_SKILL_DIR}/scripts/run.sh
 ```
 
 Present the output as-is — it produces a formatted markdown table with:
@@ -22,3 +22,13 @@ Present the output as-is — it produces a formatted markdown table with:
 - **Name / First Message** — session name or first user message
 
 After displaying the table, remind the user they can resume any session with `claude --resume <session-id>`.
+
+## Setup
+
+To manually set up or update the virtual environment:
+
+```bash
+bash ${CLAUDE_SKILL_DIR}/scripts/setup.sh
+```
+
+Add any future pip dependencies to `${CLAUDE_SKILL_DIR}/scripts/requirements.txt` and re-run setup.

@@ -1,0 +1,4 @@
+# Virtual environments created by plugin scripts
+.venv/
+__pycache__/
+*.pyc
