@@ -1,0 +1,9 @@
+{
+  "name": "wechat-reader",
+  "description": "Read and extract content from WeChat Official Account articles (mp.weixin.qq.com)",
+  "version": "1.0.0",
+  "author": {
+    "name": "Enkira AI"
+  },
+  "skills": "./skills/"
+}
