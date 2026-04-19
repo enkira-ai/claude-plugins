@@ -1,7 +1,7 @@
 {
   "name": "harness-engineer",
   "description": "Turn any new or existing repo into a harness-ready codebase where coding agents can reliably ship features, pass tests, and maintain quality without human supervision",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": {
     "name": "Enkira AI"
   },

@@ -80,8 +80,13 @@ For details: `docs/ARCHITECTURE.md`
 - `[BUILD_COMMAND]` must be clean before every commit
 - Conventional commits: `feat:`, `fix:`, `test:`, `refactor:`, `chore:`, `docs:`
 - Never delete a test to make it pass — fix the source
+- Never commit with `--no-verify`. The pre-commit hook encodes hard constraints; bypassing it is a bug, not a shortcut.
+- Never leave `TODO`/`FIXME`/`.skip`/`.only` in committed code. The hook will reject it.
 - Work on ONE feature at a time. Commit after each feature.
 - After each commit, update `progress.txt` with what was done
+
+## Verification Policy
+Before flipping `"passes": true` on a feature, invoke `harness-engineer:harness-verify <feature_id>`. The verify skill delegates to codex or gemini (external CLI, different model family) so the verdict is independent of this session's context. Self-verification is allowed only for features explicitly flagged `"trivial": true`.
 
 ## Testing
 - Run tests: `[TEST_COMMAND]`
@@ -228,34 +233,96 @@ Write `docs/DESIGN.md` with:
 - Naming conventions
 - Error handling approach
 
-### Phase 3: Set Up Quality Enforcement
+### Phase 3: Set Up Hard Constraints
 
-#### 3.1 — Git Hooks (if not already present)
+Harness research is unanimous: **hard constraints beat natural-language instructions by 100×.** Telling an agent "don't leave TODOs" is negotiable; a pre-commit hook that rejects the commit is not. This phase wires the non-negotiables.
 
-If the project has a test suite, suggest a pre-commit or pre-push hook:
+#### 3.1 — Install the Pre-Commit Hook
+
+Create `.githooks/pre-commit` and activate it via `core.hooksPath`. This persists across clones without requiring husky/lefthook.
 
 ```bash
-# .githooks/pre-commit (or use husky/lefthook if Node project)
+mkdir -p .githooks
+cat > .githooks/pre-commit <<'HOOK'
 #!/usr/bin/env bash
 set -euo pipefail
-echo "Running pre-commit checks..."
-[LINT_COMMAND] || exit 1
-[BUILD_COMMAND] || exit 1
-echo "Pre-commit checks passed."
+
+# --- Hard constraint 1: no TODO/FIXME/XXX in staged source ---
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+if [ -n "$STAGED" ]; then
+  BAD=$(echo "$STAGED" | xargs -r grep -lE '(TODO|FIXME|XXX)' 2>/dev/null || true)
+  if [ -n "$BAD" ]; then
+    echo "REJECTED: staged files contain TODO/FIXME/XXX:"
+    echo "$BAD" | sed 's/^/  /'
+    echo "Complete the work or remove the marker. Do not commit half-done code."
+    exit 1
+  fi
+fi
+
+# --- Hard constraint 2: no skipped tests ---
+SKIP_PATTERNS='\.skip\(|\.only\(|xit\(|xdescribe\(|@pytest\.mark\.skip|t\.Skip\(|#\[ignore\]'
+if [ -n "$STAGED" ]; then
+  SKIPPED=$(echo "$STAGED" | grep -E '(test|spec)' | xargs -r grep -lE "$SKIP_PATTERNS" 2>/dev/null || true)
+  if [ -n "$SKIPPED" ]; then
+    echo "REJECTED: staged test files contain .skip/.only/ignore:"
+    echo "$SKIPPED" | sed 's/^/  /'
+    echo "Fix the test or delete it. Do not skip."
+    exit 1
+  fi
+fi
+
+# --- Hard constraint 3: lint passes ---
+if [ -n "${LINT_COMMAND:-}" ]; then
+  eval "$LINT_COMMAND" || { echo "REJECTED: lint failed"; exit 1; }
+fi
+
+# --- Hard constraint 4: build passes (skip for docs-only commits) ---
+if [ -n "${BUILD_COMMAND:-}" ]; then
+  if echo "$STAGED" | grep -qvE '\.(md|txt|json)$'; then
+    eval "$BUILD_COMMAND" || { echo "REJECTED: build failed"; exit 1; }
+  fi
+fi
+
+exit 0
+HOOK
+chmod +x .githooks/pre-commit
+git config core.hooksPath .githooks
 ```
 
-Don't add test running to pre-commit (too slow). Tests go in the agent's workflow.
+**Adapt the LINT_COMMAND and BUILD_COMMAND** to the detected stack — hard-code them into the hook or document them in CLAUDE.md so the hook picks them up via env.
 
-#### 3.2 — Linting with Agent-Friendly Error Messages
+**The hook must be unbypassable in principle.** Document in CLAUDE.md that `--no-verify` is a firing-offense-level escape hatch.
 
-If the project doesn't have a linter, set one up. Configure lint rules with clear error messages — these become remediation instructions injected into the agent's context when something fails.
+#### 3.2 — Lint Configuration
+
+If the project has no linter, install one (`eslint`, `ruff`, `clippy`, `golangci-lint`, `rubocop`). Configure lint rules with clear, actionable error messages — these become remediation instructions injected into the agent's context on failure. Vague lint messages train the agent to suppress them.
+
+#### 3.3 — Independent Verification (Evaluator Role)
+
+Single-agent workflows self-validate and drift. Pair this harness with an external evaluator CLI so verification is **not** done by the generator.
+
+Check what's available on the machine:
+
+```bash
+command -v codex >/dev/null 2>&1 && echo "codex: available"
+command -v gemini >/dev/null 2>&1 && echo "gemini: available"
+```
+
+If either is present, add this line to `CLAUDE.md`:
+
+```markdown
+## Verification Policy
+Before setting `"passes": true` on any feature, invoke the `harness-engineer:harness-verify` skill. It delegates verification to codex or gemini (whichever is installed) so the verdict is free of this session's context and priors. Never self-verify except on trivial features explicitly flagged `"trivial": true`.
+```
+
+If neither CLI is installed, still add the skill reference and note that verification falls back to a fresh Claude subagent — weaker isolation, but better than self-validation.
 
 ### Phase 4: Initial Commit
 
 After creating all scaffolding:
 
 ```bash
-git add CLAUDE.md features.json progress.txt init.sh docs/
+git add CLAUDE.md features.json progress.txt init.sh docs/ .githooks/
 git commit -m "feat: initialize harness engineering scaffolding
 
 Set up the environment for autonomous agent coding sessions:
@@ -263,8 +330,11 @@ Set up the environment for autonomous agent coding sessions:
 - features.json: feature backlog with pass/fail tracking
 - progress.txt: session progress log
 - init.sh: dev environment setup script
-- docs/: architecture and design documentation"
+- docs/: architecture and design documentation
+- .githooks/pre-commit: hard constraints (no TODO, no skipped tests, lint+build gate)"
 ```
+
+After commit, remind the user to run `git config core.hooksPath .githooks` once on any fresh clone — this cannot be committed.
 
 ### Phase 5: Verify
 

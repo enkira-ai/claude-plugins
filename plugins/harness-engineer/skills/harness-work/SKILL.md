@@ -87,9 +87,9 @@ Then implement:
 3. **Write tests** — if the project has tests, add tests for your changes
 4. **Keep changes focused** — only modify what's needed for this feature
 
-### Step 5: Verify (Test Your Work)
+### Step 5: Self-Check (Sanity Only — Not Verification)
 
-This is the most critical step. **Do not skip verification.**
+Before handing off to the independent evaluator, do a quick sanity pass:
 
 ```bash
 # Run the full test suite
@@ -97,25 +97,35 @@ This is the most critical step. **Do not skip verification.**
 
 # Run the build
 [BUILD_COMMAND from CLAUDE.md]
-
-# Run any feature-specific verification steps from features.json
 ```
 
-Walk through the verification steps listed in `features.json` for your feature. If the feature involves UI, use available tools (Puppeteer MCP, browser automation, screenshots) to verify end-to-end.
+If these fail, fix first — there is no point invoking the external evaluator on broken code.
 
-**Only mark a feature as passing if ALL verification steps succeed.**
+**Do NOT mark the feature as passing in `features.json` at this step.** You are the generator; self-verification is exactly the bias the harness is designed to eliminate.
 
-If verification fails:
-1. Read the error carefully
-2. Fix the root cause (not symptoms)
-3. Re-run verification
-4. Repeat until it passes
+### Step 6: Delegate Verification (Independent Evaluator)
 
-### Step 6: Commit (Clean State)
+Invoke the `harness-engineer:harness-verify` skill with the feature ID. That skill dispatches to an external coding CLI — `codex` or `gemini` — so the verdict comes from a different model family with no shared context.
 
-After the feature passes verification:
+```
+harness-engineer:harness-verify <feature_id>
+```
 
-1. **Update features.json** — set `"passes": true` for the completed feature
+The verify skill returns a JSON verdict. Act on it:
+
+- **PASS** — the verify skill will update `features.json` and log to `progress.txt`. Proceed to commit.
+- **FAIL** — read the `concerns` and `evidence` fields, identify the root cause (not a patch to silence the verifier), fix, and re-invoke verify. Never flip `"passes": true` manually to override a FAIL.
+- **UNCLEAR** — treat as FAIL. Usually means the feature's `verification` steps in `features.json` are too vague. Tighten them, then re-invoke.
+
+**Hard rule:** `"passes": true` is only ever written by the verify skill after a PASS verdict. If you are editing that field by hand, you are doing it wrong.
+
+**Exception — trivial features:** features explicitly flagged `"trivial": true` in `features.json` (e.g. "README exists", "package.json has license field") may self-verify. Use this sparingly. If in doubt, delegate.
+
+### Step 7: Commit (Clean State)
+
+After the verify skill returns PASS and has already flipped `features.json`:
+
+1. **Do not touch `features.json` yourself** — the verify skill already updated it
 
 2. **Commit with a descriptive message:**
 ```bash
@@ -154,7 +164,7 @@ git add features.json progress.txt
 git commit -m "chore: update progress — feature #[ID] complete"
 ```
 
-### Step 7: Continue or Stop
+### Step 8: Continue or Stop
 
 After completing a feature, assess:
 - **Continue** if you have sufficient context window remaining and the next feature is straightforward
@@ -177,8 +187,10 @@ If stopping, make sure progress.txt clearly states what the next session should 
 
 ### DO NOT:
 - Work on multiple features simultaneously
-- Mark features as passing without verification
-- Delete or modify feature specs in features.json (only change `passes`)
+- Mark features as passing yourself — that is the verify skill's job, not yours
+- Self-verify a non-trivial feature to avoid the cost of the external CLI (defeats the whole harness)
+- Delete or modify feature specs in features.json (the verify skill changes only `passes`)
+- Commit with `--no-verify` to bypass the pre-commit hook
 - Skip the orient step — you NEED context from previous sessions
 - Leave the repo in a broken state (tests failing, build broken)
 - Make changes unrelated to the current feature
