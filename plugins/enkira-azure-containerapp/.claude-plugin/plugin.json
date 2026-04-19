@@ -1,0 +1,9 @@
+{
+  "name": "enkira-azure-containerapp",
+  "description": "Bind a custom domain + managed SSL certificate to an Azure Container App. Handles DNS (Cloudflare), ASUID verification, and certificate provisioning end-to-end.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Enkira AI"
+  },
+  "skills": "./skills/"
+}

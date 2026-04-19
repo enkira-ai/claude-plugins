@@ -1,0 +1,9 @@
+{
+  "name": "git-tools",
+  "description": "Git utilities for multi-account GitHub setups — configure SSH aliases and per-repo identity so commits and pushes always use the right account",
+  "version": "1.0.0",
+  "author": {
+    "name": "Bo Wen"
+  },
+  "skills": "./skills/"
+}

@@ -1,0 +1,9 @@
+{
+  "name": "enkira-infisical",
+  "description": "Manage Infisical secrets across Enkira org projects — read, write, audit, bootstrap. CLI-based (SSO login), no static credentials on disk.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Enkira AI"
+  },
+  "skills": "./skills/"
+}

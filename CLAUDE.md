@@ -66,3 +66,4 @@ Skills reference it via: `bash ${CLAUDE_PLUGIN_ROOT}/scripts/run-python.sh ${CLA
 
 ## Current Plugins
 - **session-manager** — List and rename Claude Code chat sessions
+- **harness-engineer** — Turn any repo into a harness-ready codebase for autonomous agent work

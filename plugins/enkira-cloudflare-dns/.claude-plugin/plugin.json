@@ -1,0 +1,9 @@
+{
+  "name": "enkira-cloudflare-dns",
+  "description": "Manage Cloudflare DNS records (CNAME, A, TXT) and zones via the Cloudflare API. Reads CLOUDFLARE_API_TOKEN from the shared-infra Infisical project at runtime.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Enkira AI"
+  },
+  "skills": "./skills/"
+}

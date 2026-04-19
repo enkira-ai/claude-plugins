@@ -20,6 +20,61 @@
       },
       "category": "productivity",
       "keywords": ["sessions", "history", "conversations"]
+    },
+    {
+      "name": "harness-engineer",
+      "source": "./plugins/harness-engineer",
+      "description": "Turn any new or existing repo into a harness-ready codebase where coding agents can reliably ship features, pass tests, and maintain quality without human supervision",
+      "version": "1.0.0",
+      "author": {
+        "name": "Enkira AI"
+      },
+      "category": "development",
+      "keywords": ["harness", "autonomous", "agent", "scaffolding", "features", "progress", "testing"]
+    },
+    {
+      "name": "git-tools",
+      "source": "./plugins/git-tools",
+      "description": "Git utilities for multi-account GitHub setups — configure SSH aliases and per-repo identity so commits and pushes always use the right account",
+      "version": "1.0.0",
+      "author": {
+        "name": "Bo Wen"
+      },
+      "category": "development",
+      "keywords": ["git", "github", "ssh", "multi-account", "identity", "contributor", "author", "commit"]
+    },
+    {
+      "name": "enkira-infisical",
+      "source": "./plugins/enkira-infisical",
+      "description": "Manage Infisical secrets across Enkira org projects — read, write, audit, bootstrap. CLI-based (SSO login), no static credentials on disk.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Enkira AI"
+      },
+      "category": "infrastructure",
+      "keywords": ["infisical", "secrets", "env", "credentials", "sso", "enkira"]
+    },
+    {
+      "name": "enkira-cloudflare-dns",
+      "source": "./plugins/enkira-cloudflare-dns",
+      "description": "Manage Cloudflare DNS records (CNAME, A, TXT) and zones via the Cloudflare API. Reads CLOUDFLARE_API_TOKEN from the shared-infra Infisical project at runtime.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Enkira AI"
+      },
+      "category": "infrastructure",
+      "keywords": ["cloudflare", "dns", "cname", "txt", "record", "zone", "enkira"]
+    },
+    {
+      "name": "enkira-azure-containerapp",
+      "source": "./plugins/enkira-azure-containerapp",
+      "description": "Bind a custom domain + managed SSL certificate to an Azure Container App. Handles DNS (Cloudflare), ASUID verification, and certificate provisioning end-to-end.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Enkira AI"
+      },
+      "category": "infrastructure",
+      "keywords": ["azure", "container-app", "custom-domain", "ssl", "cloudflare", "enkira"]
     }
   ]
 }
