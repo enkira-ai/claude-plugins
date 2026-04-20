@@ -1,0 +1,10 @@
+{
+  "name": "autopilot",
+  "description": "Overnight PR grind — creates PRs from ready issues, addresses reviewer feedback in a loop, stops at 'ready to merge' (never auto-merges). Works with GitHub and gitlab.com.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Enkira AI"
+  },
+  "skills": "./skills/",
+  "commands": "./commands/"
+}
