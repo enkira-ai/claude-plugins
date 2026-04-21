@@ -248,6 +248,8 @@ If a thread keeps reopening after 3 rounds, log `"#<N>: ping-pong with <reviewer
 
 Find opt-in issues. Only issues labeled `autopilot` are eligible — this is the user's explicit opt-in so we don't create PRs for every open issue.
 
+**The `autopilot` label IS the user's authorization to implement.** If an issue is labeled and clears the step 1–3 filters (no open PR, no open blockers, has an RFC or self-contained spec in the body), proceed directly to steps 4–8 — create the branch, implement, open the draft PR. Do not stop to ask the user "which one should I pick?" or "shall I proceed?". They already said yes by labeling it. If they want a different order or to hold off, they'll remove the label.
+
 ```bash
 # GitHub
 gh issue list --author @me --state open --label autopilot \
@@ -267,10 +269,14 @@ For each issue:
 
    Non-empty → skip.
 
-2. **Check unblocked.** Parse the issue body for blocker patterns:
-   - `Depends on #M` / `Blocked by #M` / `Waiting on #M`
+2. **Check unblocked.** Use GitHub's native dependency API (authoritative — matches what the auto-unblock workflow reads):
 
-   For each referenced issue/PR number, check its state. If any blocker is still open, log `"issue #<N>: blocked by #<M>, skipping"` and move on.
+   ```bash
+   gh api "/repos/<owner>/<repo>/issues/<N>/dependencies/blocked_by" \
+     --jq '[.[] | select(.state == "open")] | length'
+   ```
+
+   If the count is non-zero, log `"issue #<N>: blocked by <M> open issue(s), skipping"` and move on. As a fallback, also scan the issue body for `Depends on #M` / `Blocked by #M` / `Waiting on #M` in case the formal dependency graph is incomplete.
 
 3. **Read the RFC** linked from the issue body (same lookup as A.1). If no RFC is linked, skip and log — don't implement blind.
 
@@ -366,6 +372,7 @@ When invoked as a one-shot (`/autopilot:autopilot` outside of `/loop`), don't ca
 - Run local tests before pushing a fix commit.
 - Report clearly at the end of every pass with the status buckets.
 - Skip and log when you hit a diverged branch, missing RFC, or failing test — do not guess.
+- **On Phase B, proceed directly.** The `autopilot` label is authorization. If the issue has no open PR, no open `blocked_by` dependencies, and a clear spec (RFC or self-contained body), implement it this pass. Multiple eligible issues? Pick the one with the lowest issue number (stable, predictable) and do it; future passes pick up the rest. Never stop to ask "which should I pick?".
 
 ### DO NOT:
 
@@ -379,6 +386,7 @@ When invoked as a one-shot (`/autopilot:autopilot` outside of `/loop`), don't ca
 - **NEVER let scope creep.** If a reviewer suggests something outside the RFC, reply explaining and resolve — do not implement it.
 - **NEVER exceed the 3-round iteration cap** on a single PR in one pass.
 - **NEVER push speculative fixes when CI is red** unless the fix is directly addressing an open review comment.
+- **NEVER defer Phase B implementation to wait for user direction** when an issue is labeled `autopilot` and passes the step 1–3 filters. The label is the direction. Asking "which should I pick?" defeats the purpose of the label.
 
 ## When stuck
 
