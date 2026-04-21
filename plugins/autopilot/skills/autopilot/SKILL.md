@@ -220,7 +220,20 @@ For each unresolved thread, in order:
      -f body="RFC §<section>: <quoted decision>. This change would conflict because <reason>. Leaving as-is."
    ```
 
-5. **Mark the thread resolved.**
+5. **Mark the thread resolved — ONLY AFTER posting the inline reply.**
+
+   Every review thread you resolve MUST have your reply comment
+   posted on it first (either the fix-confirmation from step 3 or
+   the reasoned-reply from step 4). The resolve mutation is the
+   LAST step; it confirms the reply is already in place, not a
+   shortcut around it.
+
+   When batching operations across multiple threads, post all replies
+   first, then resolve. Do NOT interleave in a single loop without
+   verifying each reply was posted before its matching resolve — if
+   the reply POST fails silently (e.g., wrong comment-id), the resolve
+   will still succeed and leave an unexplained "resolved by author"
+   marker with no substance.
 
    ```bash
    # GitHub
@@ -235,6 +248,10 @@ For each unresolved thread, in order:
    glab api -X PUT \
      "projects/:id/merge_requests/<iid>/discussions/<discussion-id>?resolved=true"
    ```
+
+   After resolving, verify with a re-fetch that every newly-resolved
+   thread has at least 2 comments (original + your reply). If any shows
+   only 1, post the missing reply retroactively before the pass ends.
 
 #### A.6 — Iteration cap
 
@@ -380,7 +397,7 @@ When invoked as a one-shot (`/autopilot:autopilot` outside of `/loop`), don't ca
 - **NEVER force-push.** If `git pull --ff-only` fails, skip the PR and surface it.
 - **NEVER touch a PR not authored by the current user.** Phase A and B are `--author @me` only.
 - **NEVER close a PR or an issue.** Only the user closes things.
-- **NEVER mark a thread resolved without substance.** Either a fix commit or a reasoned reply must precede the resolve.
+- **NEVER mark a thread resolved without substance.** Either a fix commit + inline reply, or a reasoned inline reply, MUST be posted on the thread BEFORE the resolve mutation runs. The reply goes on the thread itself (`/pulls/<N>/comments/<comment-id>/replies`), not as a top-level PR comment or a commit message alone. If a reviewer has to scroll the thread to figure out what changed, autopilot did it wrong.
 - **NEVER commit with `--no-verify`** to bypass hooks.
 - **NEVER push to a branch that is not a PR head authored by you.** Double-check with `gh pr list --head <branch> --author @me` before pushing if unsure.
 - **NEVER let scope creep.** If a reviewer suggests something outside the RFC, reply explaining and resolve — do not implement it.
