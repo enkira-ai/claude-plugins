@@ -162,10 +162,10 @@ Categorize CI into one of:
 
 | Unresolved threads | CI     | Action                                                 |
 |--------------------|--------|--------------------------------------------------------|
-| 0                  | green  | **READY TO MERGE** — log + skip (do NOT merge)          |
+| 0                  | green  | Check for unchecked test-plan items (A.5.5). If none: **READY TO MERGE** — log + skip (do NOT merge). If some: run them. |
 | 0                  | red    | **BLOCKED** — log CI failure summary, skip this pass   |
 | 0                  | pending| **IN PROGRESS** — log "waiting on CI", skip this pass  |
-| ≥1                 | any    | Proceed to A.5 to address comments                     |
+| ≥1                 | any    | Proceed to A.5 to address comments, then A.5.5         |
 
 #### A.5 — Address each unresolved comment
 
@@ -253,11 +253,109 @@ For each unresolved thread, in order:
    thread has at least 2 comments (original + your reply). If any shows
    only 1, post the missing reply retroactively before the pass ends.
 
+#### A.5.5 — Run unchecked test-plan items
+
+After comments are addressed (A.5) — or immediately, if there were no
+comments — look at the PR body for a `## Test plan` (or `## Testing`)
+section and execute any unchecked `- [ ]` items that are actually
+runnable. A PR isn't "ready to merge" just because CI passed if the
+author listed validations the reviewer still has to run; autopilot
+should clear those the author intended autopilot to clear.
+
+1. **Fetch the PR body fresh.**
+
+   ```bash
+   gh pr view <N> --json body --jq .body > /tmp/pr-<N>-body.md
+   ```
+
+2. **Find unchecked items under the test-plan heading.** Scan for a
+   heading matching `^##\s+Test(ing)?\s*[Pp]lan` (case-insensitive).
+   Within that section (up to the next `^##` heading), collect every
+   `- [ ]` line.
+
+3. **Classify each unchecked item.**
+
+   - **Runnable** — contains a command in inline backticks (e.g.
+     `` `pytest tests/foo.py` ``, `` `npm test` ``, `` `make lint` ``,
+     `` `node --check path/to/file.js` ``) OR a fenced code block
+     with a recognizable shell invocation. Extract the command string.
+   - **Human-only** — contains words like `manual`, `manually`,
+     `reviewer`, `in a browser`, `in multiple browsers`, `render`,
+     `visually`, `screenshot`, `open in`, `exercise the UI`. Skip.
+     These describe checks a human must perform.
+   - **Ambiguous** — no recognizable command and no human-only
+     markers. Skip. Don't guess; log the item verbatim in the Phase C
+     report so the user can decide.
+
+4. **For each Runnable item, execute in the PR's worktree.** Use the
+   same worktree pattern as A.5 (`git checkout <head-ref>; git pull
+   --ff-only`). Run the exact command string extracted from the
+   backticks. Capture stdout + stderr + exit code.
+
+5. **On PASS** (exit code 0), flip the checkbox from `- [ ]` to
+   `- [x]` in the PR body. Edit surgically — match the full line
+   verbatim (including any trailing note after the command) and
+   substitute only the bracket:
+
+   ```bash
+   # Read, substitute exact line, write back.
+   body=$(gh pr view <N> --json body --jq .body)
+   new_body=$(printf '%s' "$body" | python3 -c '
+   import sys, re
+   body = sys.stdin.read()
+   old = sys.argv[1]
+   new = old.replace("- [ ]", "- [x]", 1)
+   print(body.replace(old, new, 1), end="")' "<exact line>")
+   gh pr edit <N> --body "$new_body"
+   ```
+
+   Do NOT rewrite the whole body — anything you don't re-emit
+   disappears.
+
+6. **On FAIL.** Treat this like an A.5 unresolved thread:
+   - Build context from the command output. Look at the failing test
+     names, stack traces, etc.
+   - **If the fix is in scope and obvious** (a missing import, a
+     stale assertion, a broken selector): apply it, commit, push,
+     re-run the command. If it now passes, flip the checkbox.
+   - **If the fix is non-obvious or outside PR scope**: don't flip
+     the checkbox. Post a top-level PR comment with the failing
+     command + output tail and your diagnosis, and flag the item in
+     the Phase C report.
+   - One retry max per item. Don't loop on a failing command.
+
+7. **Do NOT run commands that look destructive or costly.** Before
+   executing, check the command string for:
+   - `rm -rf`, `drop table`, `git push --force`, `docker image prune`
+   - Anything under `e2e` / `integration` markers that hits external
+     APIs (LiteLLM, cloud DBs) — those cost real money or produce
+     real side effects.
+   - Anything that requires credentials you can't see (`LITELLM_API_KEY`,
+     cloud tokens) — if the env doesn't have the var, skip with a
+     note that it needs the reviewer's env.
+
+8. **Round accounting.** A round of A.5.5 fixes counts against the
+   A.6 three-round cap along with A.5 rounds. A test plan that keeps
+   producing new failures after 3 rounds gets surfaced as CAPPED.
+
+Worked example: PR body has
+
+    ## Test plan
+    - [x] `pytest tests/test_foo.py` — 12 passed
+    - [ ] `pytest tests/test_bar.py -v` — added by reviewer, please re-run
+    - [ ] Manual: reviewer should open the page in Chrome and Firefox
+
+Round 1 runs `pytest tests/test_bar.py -v`. If pass → flip the second
+checkbox. Third is human-only → skip. Report: one checkbox flipped,
+one human-only item surfaced.
+
 #### A.6 — Iteration cap
 
-At most **3 rounds** of address-and-resolve per PR per pass. A "round" = address all currently-unresolved threads, then re-fetch to see if new ones appeared (e.g. a bot re-reviewed).
+At most **3 rounds** per PR per pass, across A.5 + A.5.5 combined. A "round" = address all currently-unresolved threads AND run all currently-unchecked test-plan items, then re-fetch to see if new ones appeared (e.g. a bot re-reviewed, or a flipped checkbox surfaced a newly-unchecked item a reviewer just added).
 
 If a thread keeps reopening after 3 rounds, log `"#<N>: ping-pong with <reviewer> on <file>:<line> — capped"` and move on. Surface it in the Phase C report.
+
+If a test-plan item keeps failing after 3 rounds, log `"#<N>: test-plan item '<command>' failing after 3 rounds — capped"`. Post the final failure output as a PR comment so the reviewer can take over.
 
 ---
 
@@ -387,6 +485,7 @@ When invoked as a one-shot (`/autopilot:autopilot` outside of `/loop`), don't ca
 - Commit with descriptive messages (`fix(review): ...`).
 - Open new PRs as **draft**.
 - Run local tests before pushing a fix commit.
+- **Run unchecked test-plan items (A.5.5).** A PR with unchecked `- [ ]` runnable commands in its test plan isn't ready; execute them, flip the checkbox on pass, debug + push a fix on fail.
 - Report clearly at the end of every pass with the status buckets.
 - Skip and log when you hit a diverged branch, missing RFC, or failing test — do not guess.
 - **On Phase B, proceed directly.** The `autopilot` label is authorization. If the issue has no open PR, no open `blocked_by` dependencies, and a clear spec (RFC or self-contained body), implement it this pass. Multiple eligible issues? Pick the one with the lowest issue number (stable, predictable) and do it; future passes pick up the rest. Never stop to ask "which should I pick?".
@@ -404,6 +503,9 @@ When invoked as a one-shot (`/autopilot:autopilot` outside of `/loop`), don't ca
 - **NEVER exceed the 3-round iteration cap** on a single PR in one pass.
 - **NEVER push speculative fixes when CI is red** unless the fix is directly addressing an open review comment.
 - **NEVER defer Phase B implementation to wait for user direction** when an issue is labeled `autopilot` and passes the step 1–3 filters. The label is the direction. Asking "which should I pick?" defeats the purpose of the label.
+- **NEVER flip a test-plan checkbox you didn't actually run.** A `- [x]` claims the command passed on this pass. If the command couldn't execute (missing env var, human-only, ambiguous), leave `- [ ]` and surface the reason in Phase C. Faking a checkbox misleads the reviewer about what's been validated.
+- **NEVER run e2e / integration tests that hit paid external services** (LiteLLM gateway, cloud DBs, scraping targets) just because they appear in a test plan. Skip with a note; those costs and side effects belong to the reviewer.
+- **NEVER overwrite the PR body wholesale.** When flipping a test-plan checkbox, do a surgical single-line `str.replace` on the exact unchecked line. Emitting only the fragment you care about would delete everything else in the body.
 
 ## When stuck
 
@@ -412,6 +514,8 @@ When invoked as a one-shot (`/autopilot:autopilot` outside of `/loop`), don't ca
 3. Bot keeps reopening the same thread → cap hit → surface and move on.
 4. Tests fail on a fix attempt → revert the file, fall back to reply-with-rationale explaining the failure.
 5. Auth expired mid-pass → abort cleanly with a clear message pointing to `gh auth login` / `glab auth login`.
+6. Test-plan item needs an env var autopilot doesn't have (e.g. `LITELLM_API_KEY`, cloud credentials) → skip, leave unchecked, surface in Phase C as "needs reviewer env".
+7. Test-plan item is ambiguous prose with no command → skip, leave unchecked, surface verbatim in Phase C. Don't guess at the intended command.
 
 ## Platform parity notes
 
