@@ -108,6 +108,17 @@
       },
       "category": "productivity",
       "keywords": ["agent", "multi-agent", "codex", "chat", "collaboration", "brainstorming", "debate", "subagent"]
+    },
+    {
+      "name": "codex-review",
+      "source": "./plugins/codex-review",
+      "description": "Non-interactive second-opinion reviews via the Codex CLI. Wrap `codex review` for uncommitted changes, branch diffs, or specific commits — use for RFCs, PR prep, or any work where an independent cross-model reviewer would catch blind spots Claude's own review misses.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Bo Wen"
+      },
+      "category": "development",
+      "keywords": ["codex", "review", "second-opinion", "pr", "rfc", "code-review", "cross-model", "independent-review"]
     }
   ]
 }

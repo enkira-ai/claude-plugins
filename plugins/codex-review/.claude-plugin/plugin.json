@@ -1,0 +1,10 @@
+{
+  "name": "codex-review",
+  "description": "Non-interactive second-opinion reviews via the Codex CLI. Wrap `codex review` for uncommitted changes, branch diffs, or specific commits — use for RFCs, PR prep, or any work where an independent reviewer would catch blind spots.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Bo Wen"
+  },
+  "skills": "./skills/",
+  "commands": "./commands/"
+}
