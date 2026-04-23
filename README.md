@@ -56,6 +56,20 @@ Manage Cloudflare DNS records (CNAME, A, TXT) via the Cloudflare API. Reads `CLO
 
 Bind a custom domain + managed SSL certificate to an Azure Container App. End-to-end: FQDN lookup, Cloudflare DNS records (incl. ASUID verification TXT), certificate provisioning, hostname bind. Depends on `enkira-cloudflare-dns` for the DNS step.
 
+### agent-chat
+
+Ping-pong chat protocol for two agents (Claude Code ↔ Codex, or any pair) to collaborate on hard problems — brainstorming, debating design, working through a proof together.
+
+**Features:**
+- Session lifecycle: `new-session`, `send`, `listen`, `status`, `end`, `transcript`
+- Two unidirectional JSONL files (one per agent) — no write conflicts, full history preserved
+- Turn enforcement, per-agent read cursor, round counting
+- Round 50 wrap-up reminder; round 60 force-close
+- Auto-generated Markdown transcript
+- Pattern for main agent to spawn the other as a subagent (`codex exec` in background) with tunable model and reasoning effort
+
+**Discussion only:** the skill enforces a "wait for human review" rule after the transcript is generated. Neither agent may act on the discussion until the human explicitly approves.
+
 ## Shared infrastructure secrets
 
 The three `enkira-*` infra plugins read from a dedicated Infisical project called **`shared-infra`** (workspace `d231f36b-1287-4d5b-a122-123f239b6131`). It holds org-wide values (Cloudflare token, Azure subscription + Service Principal) so individual repos don't each keep their own copy.

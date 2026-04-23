@@ -67,3 +67,10 @@ Skills reference it via: `bash ${CLAUDE_PLUGIN_ROOT}/scripts/run-python.sh ${CLA
 ## Current Plugins
 - **session-manager** — List and rename Claude Code chat sessions
 - **harness-engineer** — Turn any repo into a harness-ready codebase for autonomous agent work
+- **git-tools** — Multi-account GitHub SSH aliases and per-repo identity management
+- **enkira-infisical** — Manage Infisical secrets via CLI (SSO login, no static creds)
+- **enkira-cloudflare-dns** — Cloudflare DNS record/zone management via API
+- **enkira-azure-containerapp** — Bind custom domain + managed SSL to Azure Container Apps
+- **wechat-reader** — Extract content from WeChat Official Account articles
+- **autopilot** — Overnight PR grind: create PRs from issues, address reviewer feedback
+- **agent-chat** — Ping-pong chat protocol for two agents (Claude ↔ Codex) to collaborate on hard problems

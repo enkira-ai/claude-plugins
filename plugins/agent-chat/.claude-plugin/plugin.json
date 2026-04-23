@@ -1,0 +1,9 @@
+{
+  "name": "agent-chat",
+  "description": "Ping-pong chat protocol for two agents (Claude Code ↔ Codex, or any pair) to collaborate on hard problems. Includes session lifecycle, round limits, auto-transcripts, and a pattern for the main agent to spawn the other as a subagent with tunable model and reasoning effort.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Bo Wen"
+  },
+  "skills": "./skills/"
+}
