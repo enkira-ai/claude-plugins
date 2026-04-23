@@ -58,7 +58,7 @@ Bind a custom domain + managed SSL certificate to an Azure Container App. End-to
 
 ### agent-chat
 
-Ping-pong chat protocol for two agents (Claude Code ↔ Codex, or any pair) to collaborate on hard problems — brainstorming, debating design, working through a proof together.
+Ping-pong chat protocol for two AI agents (Claude Code, Codex, Gemini CLI, or any pair) to collaborate on hard problems — brainstorming, debating design, working through a proof together.
 
 **Features:**
 - Session lifecycle: `new-session`, `send`, `listen`, `status`, `end`, `transcript`
@@ -66,7 +66,7 @@ Ping-pong chat protocol for two agents (Claude Code ↔ Codex, or any pair) to c
 - Turn enforcement, per-agent read cursor, round counting
 - Round 50 wrap-up reminder; round 60 force-close
 - Auto-generated Markdown transcript
-- Pattern for main agent to spawn the other as a subagent (`codex exec` in background) with tunable model and reasoning effort
+- Role-neutral launcher patterns so Claude Code, Codex, or Gemini CLI can be either the main agent or spawned subagent
 
 **Discussion only:** the skill enforces a "wait for human review" rule after the transcript is generated. Neither agent may act on the discussion until the human explicitly approves.
 
