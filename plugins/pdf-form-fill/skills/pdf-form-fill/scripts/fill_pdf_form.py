@@ -81,6 +81,13 @@ def _set_radio_on(doc, target):
         pass
 
 
+def _is_grouped_checkbox(doc, widget):
+    """A CheckBox is part of a radio-style group when multiple widgets share
+    its field_name. NY IT-201 filing status is a real example: 5 CheckBox
+    widgets all named 'Filing_status', differing only by on-state."""
+    return len(_group_members(doc, widget.field_name)) > 1
+
+
 def plan_to_actions(doc, plan):
     """Resolve plan into a list of (idx, widget_type, action, value_or_reason).
     Used by both apply_plan and the dry-run reporter."""
@@ -108,10 +115,11 @@ def plan_to_actions(doc, plan):
                 actions.append((idx, t, "TYPE_MISMATCH",
                                 f"RadioButton expects bool-ish, got {val!r}"))
         elif t == "CheckBox":
+            grouped = _is_grouped_checkbox(doc, w)
             if val in TRUTHY:
-                actions.append((idx, t, "CHECK_ON", val))
+                actions.append((idx, t, "RADIO_ON" if grouped else "CHECK_ON", val))
             elif val in FALSY:
-                actions.append((idx, t, "CHECK_OFF", val))
+                actions.append((idx, t, "RADIO_OFF" if grouped else "CHECK_OFF", val))
             else:
                 actions.append((idx, t, "TYPE_MISMATCH",
                                 f"CheckBox expects bool-ish, got {val!r}"))
@@ -122,6 +130,21 @@ def plan_to_actions(doc, plan):
             else:
                 actions.append((idx, t, "SET_TEXT", "" if val is None else str(val)))
     return actions
+
+
+def _set_check_on(doc, w):
+    """Set a single (non-grouped) CheckBox to its on-state via direct xref.
+    pymupdf's high-level `widget.field_value = on_state` setter is unreliable
+    when on-state contains URL-encoded chars (e.g. 'elec#20funds#20withdrawal'):
+    it writes /V but doesn't propagate to /AS, and on reload V reverts to /Off."""
+    on = _on_state(w)
+    doc.xref_set_key(w.xref, "AS", f"/{on}")
+    doc.xref_set_key(w.xref, "V", f"/{on}")
+
+
+def _set_check_off(doc, w):
+    doc.xref_set_key(w.xref, "AS", "/Off")
+    doc.xref_set_key(w.xref, "V", "/Off")
 
 
 def apply_plan(doc, plan):
@@ -139,11 +162,9 @@ def apply_plan(doc, plan):
         elif action == "RADIO_OFF":
             doc.xref_set_key(w.xref, "AS", "/Off")
         elif action == "CHECK_ON":
-            w.field_value = _on_state(w)
-            w.update()
+            _set_check_on(doc, w)
         elif action == "CHECK_OFF":
-            w.field_value = "Off"
-            w.update()
+            _set_check_off(doc, w)
         elif action == "SET_TEXT":
             w.field_value = payload
             w.update()
