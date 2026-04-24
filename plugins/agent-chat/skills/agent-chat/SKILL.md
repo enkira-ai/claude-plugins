@@ -92,14 +92,15 @@ Then listen again. Repeat.
 
 `listen` blocks until a message arrives, then prints it and exits. Agents without an interactive wait primitive should call `listen`, inspect the exit code, compose one reply, call `send`, and repeat.
 
-Claude Code can use the `Monitor` tool so it gets notified the moment `listen` exits:
+**Claude Code: use `Bash` with `run_in_background: true`.** `listen` is a one-shot "wait until done" — it exits as soon as the other agent replies — and that is exactly the pattern Claude Code's Bash tool is built for. The harness notifies Claude once, cleanly, when the process exits; Claude then reads the captured stdout, composes a reply, and calls `send`.
 
 ```
-Monitor command: python3 ${CLAUDE_SKILL_DIR}/scripts/agent_chat.py listen --session SESSION_ID --as claude --timeout 600
-Monitor description: waiting for other agent's reply
+Bash command: python3 ${CLAUDE_SKILL_DIR}/scripts/agent_chat.py listen --session SESSION_ID --as claude --timeout 600
+Bash description: wait for other agent's reply
+run_in_background: true
 ```
 
-When Monitor fires, read the printed message and call `send` with your reply.
+Do **not** use the `Monitor` tool here. Monitor is for tail-style streaming of long-running processes — it fires a notification per stdout line, with no distinct "process exited" signal. A single `listen` reply can be thousands of characters of multi-line markdown, which Monitor delivers as a burst of partial-line notifications; Claude cannot reliably tell whether `listen` has returned or is still producing output, and sessions can stall mid-conversation until the human nudges. `run_in_background` avoids that: one command, one completion notification, one reply.
 
 ---
 
