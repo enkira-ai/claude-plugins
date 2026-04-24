@@ -110,6 +110,17 @@
       "keywords": ["agent", "multi-agent", "claude", "codex", "gemini", "chat", "collaboration", "brainstorming", "debate", "subagent"]
     },
     {
+      "name": "pdf-form-fill",
+      "source": "./plugins/pdf-form-fill",
+      "description": "Fill AcroForm PDFs (tax returns, government forms) programmatically. Uses Set-of-Mark annotation + text-proximity label binding so widget-to-line mapping is verified from the PDF itself, not guessed from memory.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Bo Wen"
+      },
+      "category": "productivity",
+      "keywords": ["pdf", "acroform", "form", "tax", "fill", "fillable", "irs", "government"]
+    },
+    {
       "name": "codex-review",
       "source": "./plugins/codex-review",
       "description": "Non-interactive second-opinion reviews via the Codex CLI. Wrap `codex review` for uncommitted changes, branch diffs, or specific commits — use for RFCs, PR prep, or any work where an independent cross-model reviewer would catch blind spots Claude's own review misses.",

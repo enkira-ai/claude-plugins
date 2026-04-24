@@ -1,0 +1,9 @@
+{
+  "name": "pdf-form-fill",
+  "description": "Fill AcroForm PDFs (tax forms, government forms) programmatically. Uses Set-of-Mark annotation + text-proximity label binding so widget-to-line mapping is verified from the PDF itself, not guessed from memory.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Bo Wen"
+  },
+  "skills": "./skills/"
+}
