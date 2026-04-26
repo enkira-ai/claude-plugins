@@ -130,6 +130,17 @@
       },
       "category": "development",
       "keywords": ["codex", "review", "second-opinion", "pr", "rfc", "code-review", "cross-model", "independent-review"]
+    },
+    {
+      "name": "rfc-loop",
+      "source": "./plugins/rfc-loop",
+      "description": "Subagent-driven RFC implementation loop. Breaks a merged RFC into one Epic + N sub-issues, then runs branch → held-implementer subagent (TDD) → spec-reviewer subagent → PR → Gemini + Codex cross-model review → merge, one chunk at a time. Main agent stays clean as a project manager; per-PR implementer subagents do the coding via Agent + SendMessage.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Bo Wen"
+      },
+      "category": "development",
+      "keywords": ["rfc", "implementation", "subagent", "tdd", "epic", "pr", "github", "review", "codex", "gemini", "project-management"]
     }
   ]
 }

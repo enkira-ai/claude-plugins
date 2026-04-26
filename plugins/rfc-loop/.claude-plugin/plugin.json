@@ -1,0 +1,9 @@
+{
+  "name": "rfc-loop",
+  "description": "Subagent-driven RFC implementation loop. Turns a merged RFC into one Epic + N sub-issues, then runs branch → held-implementer subagent (TDD) → spec-reviewer subagent → PR → Gemini + Codex cross-model review → merge loop one chunk at a time. Main agent stays clean as a project manager; per-PR implementer subagents do the coding via Agent + SendMessage.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Bo Wen"
+  },
+  "skills": "./skills/"
+}
