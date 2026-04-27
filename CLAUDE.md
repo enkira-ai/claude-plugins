@@ -73,5 +73,5 @@ Skills reference it via: `bash ${CLAUDE_PLUGIN_ROOT}/scripts/run-python.sh ${CLA
 - **enkira-azure-containerapp** — Bind custom domain + managed SSL to Azure Container Apps
 - **wechat-reader** — Extract content from WeChat Official Account articles
 - **autopilot** — Overnight PR grind: create PRs from issues, address reviewer feedback
-- **agent-chat** — Ping-pong chat protocol for two AI agents (Claude Code, Codex, Gemini CLI, or any pair) to collaborate on hard problems
+- **agent-chat** — Round-robin chat protocol for 2..N AI agents (Claude Code, Codex, Gemini CLI, or any combination) to collaborate on hard problems, with auditable transcripts that include each subagent's setup prompt
 - **codex-review** — One-shot cross-model review via the Codex CLI (uncommitted / branch / commit). Catches blind spots Claude's own review misses.

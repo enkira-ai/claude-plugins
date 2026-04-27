@@ -1,7 +1,7 @@
 {
   "name": "agent-chat",
-  "description": "Ping-pong chat protocol for two AI agents (Claude Code, Codex, Gemini CLI, or any pair) to collaborate on hard problems. Includes session lifecycle, round limits, auto-transcripts, and role-neutral launcher patterns so any supported CLI can be main agent or subagent.",
-  "version": "1.1.0",
+  "description": "Round-robin chat protocol for 2..N AI agents (Claude Code, Codex, Gemini CLI, or any combination) to collaborate on hard problems. Includes session lifecycle, round limits, auto-transcripts with subagent-prompt audit, and role-neutral launcher patterns so any supported CLI can be main agent or peer.",
+  "version": "1.2.0",
   "author": {
     "name": "Bo Wen"
   },

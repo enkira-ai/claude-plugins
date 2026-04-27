@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """
-agent_chat.py — Ping-pong inter-agent chat (Claude Code <-> Codex or any two agents).
+agent_chat.py — Multi-agent round-robin chat (2..N agents).
 
 Session files live under <git-root>/.agent_chat/sessions/<session-id>/.
-Each agent writes to its own JSONL file; reads from the other's.
+Each agent writes to its own JSONL file; reads from every peer's file.
 
 Commands:
-  new-session   Create a session (human runs this, or main agent)
-  send          Send a message
-  listen        Block until the other agent sends, then print and exit
-  status        Show round count, whose turn, last activity
-  end           Mark session ended
-  transcript    Merge both JSONLs into a Markdown file
-  list          List sessions found in this repo
+  new-session    Create a session (optionally pre-declare --participants)
+  send           Send a message
+  listen         Block until it's your turn AND a peer has sent a new message
+  status         Show round count, whose turn, last activity
+  end            Mark session ended
+  transcript     Merge all JSONLs into a Markdown file (incl. setup prompts)
+  record-prompt  Save a subagent setup prompt + launcher into the session
+  list           List sessions found in this repo
 """
 
 import argparse
@@ -37,6 +38,10 @@ def now_ts() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def slugify(name: str) -> str:
+    return name.replace(" ", "_").lower()
+
+
 def find_git_root() -> Path | None:
     try:
         result = subprocess.run(
@@ -58,7 +63,6 @@ def get_sessions_dir(interactive: bool = False) -> Path:
         ans = input().strip()
         base = Path(ans) if ans else Path.home() / ".agent_chat" / "sessions"
         return base
-    # Non-interactive fallback: use cwd
     return Path.cwd() / ".agent_chat" / "sessions"
 
 
@@ -76,26 +80,35 @@ def save_meta(session_path: Path, meta: dict) -> None:
 
 def agent_out_file(session_path: Path, agent: str, meta: dict) -> Path:
     """The file this agent WRITES to."""
-    agents = meta.get("agents", [])
-    if agent not in agents:
-        # Will be registered soon; use slot based on current count
-        idx = len(agents)
-    else:
-        idx = agents.index(agent)
-    if idx == 0:
-        return session_path / f"{meta.get('agent_names', ['a', 'b'])[0]}_out.jsonl"
-    return session_path / f"{meta.get('agent_names', ['a', 'b'])[1]}_out.jsonl"
+    if agent not in meta["agents"]:
+        raise RuntimeError(f"Agent {agent!r} is not registered in this session")
+    idx = meta["agents"].index(agent)
+    return session_path / f"{meta['agent_names'][idx]}_out.jsonl"
 
 
-def other_out_file(session_path: Path, agent: str, meta: dict) -> Path | None:
-    """The file this agent READS from. Returns None if the other agent hasn't registered yet."""
-    agents = meta.get("agents", [])
-    names = meta.get("agent_names", [])
-    if len(agents) < 2 or agent not in agents:
-        return None
-    idx = agents.index(agent)
-    other_idx = 1 - idx
-    return session_path / f"{names[other_idx]}_out.jsonl"
+def peer_out_files(session_path: Path, agent: str, meta: dict) -> dict:
+    """Map peer-name -> file this agent reads from."""
+    return {
+        peer: session_path / f"{meta['agent_names'][i]}_out.jsonl"
+        for i, peer in enumerate(meta["agents"])
+        if peer != agent
+    }
+
+
+def read_records(fpath: Path) -> list:
+    if not fpath.exists():
+        return []
+    out = []
+    with open(fpath) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+    return out
 
 
 def append_record(path: Path, record: dict) -> None:
@@ -137,47 +150,90 @@ def cmd_new_session(args):
 
     path.mkdir(parents=True)
 
+    participants = args.participants or []
+    # Validate: no duplicates, no slug collisions
+    if participants:
+        if len(set(participants)) != len(participants):
+            print("[agent_chat] --participants must be unique", file=sys.stderr)
+            sys.exit(1)
+        slugs = [slugify(p) for p in participants]
+        if len(set(slugs)) != len(slugs):
+            print(f"[agent_chat] participant names produce duplicate slugs: {slugs}", file=sys.stderr)
+            sys.exit(1)
+        if len(participants) < 2:
+            print("[agent_chat] --participants needs at least 2 names", file=sys.stderr)
+            sys.exit(1)
+
+    agents = list(participants)
+    agent_names = [slugify(a) for a in agents]
+    msg_counts = {a: 0 for a in agents}
+
     meta = {
         "session_id": sid,
         "started": now_ts(),
         "main_agent": None,
-        "agents": [],
-        "agent_names": [],   # parallel to agents, tracks file-name slugs
-        "msg_counts": {},    # {agent_name: int} — only 'message' type
+        "predeclared": bool(participants),
+        "agents": agents,
+        "agent_names": agent_names,
+        "msg_counts": msg_counts,
         "_seq": 0,
         "whose_turn": "either",
         "status": "waiting",
         "last_activity": now_ts(),
         "wrap_up_sent": False,
         "force_end_sent": False,
+        "read_cursors": {},
+        "setup": [],
     }
     save_meta(path, meta)
 
+    # Pre-create the JSONL file for each declared participant
+    for slug in agent_names:
+        (path / f"{slug}_out.jsonl").touch()
+
     print(f"Session created: {sid}")
     print(f"Location:        {path}")
-    print()
-    print("Next steps:")
-    print(f"  Main agent:    python agent_chat.py send '<opening message>' --session {sid} --as <your-name>")
-    print(f"  Other agent:   python agent_chat.py listen --session {sid} --as <your-name>")
+    if participants:
+        print(f"Participants:    {', '.join(participants)} (round-robin in this order)")
+        print()
+        print("Next steps:")
+        first = participants[0]
+        print(f"  Main agent ({first}):")
+        print(f"    python agent_chat.py send '<opening>' --session {sid} --as {first}")
+        for p in participants[1:]:
+            print(f"  Other ({p}):")
+            print(f"    python agent_chat.py listen --session {sid} --as {p}")
+    else:
+        print()
+        print("Next steps (legacy 2-agent lazy mode):")
+        print(f"  Main agent:    python agent_chat.py send '<opening>' --session {sid} --as <your-name>")
+        print(f"  Other agent:   python agent_chat.py listen --session {sid} --as <your-name>")
 
 
 def register_agent(session_path: Path, meta: dict, agent: str) -> None:
-    """Add agent to session on first appearance. First registrant becomes main_agent."""
+    """For pre-declared sessions: validate. For lazy 2-agent: register on first appearance."""
+    if meta.get("predeclared"):
+        if agent not in meta["agents"]:
+            print(
+                f"[agent_chat] '{agent}' is not in the pre-declared participants: {meta['agents']}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        return
+
     if agent in meta["agents"]:
         return
     if len(meta["agents"]) >= 2:
-        print(f"[agent_chat] Session already has 2 agents: {meta['agents']}", file=sys.stderr)
+        print(f"[agent_chat] Session already has 2 agents: {meta['agents']}. "
+              f"Create a new session with --participants for >2 agents.", file=sys.stderr)
         sys.exit(1)
 
-    # Use agent name as file slug (sanitised)
-    slug = agent.replace(" ", "_").lower()
+    slug = slugify(agent)
     meta["agents"].append(agent)
     meta["agent_names"].append(slug)
     meta["msg_counts"][agent] = 0
 
-    # Create the JSONL file for this agent
-    idx = len(meta["agents"]) - 1
-    out = session_path / f"{meta['agent_names'][idx]}_out.jsonl"
+    out = session_path / f"{slug}_out.jsonl"
     if not out.exists():
         out.touch()
 
@@ -206,7 +262,7 @@ def cmd_send(args):
 
     agent = args.as_agent
     register_agent(session_path, meta, agent)
-    meta = load_meta(session_path)  # reload after register wrote it
+    meta = load_meta(session_path)
 
     # First sender becomes the main agent
     if meta["main_agent"] is None:
@@ -217,7 +273,8 @@ def cmd_send(args):
     # Turn check
     if meta["whose_turn"] not in ("either", agent):
         if not args.force:
-            print(f"[agent_chat] It's {meta['whose_turn']}'s turn. Use --force to override.", file=sys.stderr)
+            print(f"[agent_chat] It's {meta['whose_turn']}'s turn. Use --force to override.",
+                  file=sys.stderr)
             sys.exit(1)
 
     out = agent_out_file(session_path, agent, meta)
@@ -246,7 +303,8 @@ def cmd_send(args):
             f"No further exchanges after that."
         ))
         meta["status"] = "force_ending"
-        print(f"[agent_chat] ⛔ Round {FORCE_END_ROUND} — force-end injected. Main agent must close.", file=sys.stderr)
+        print(f"[agent_chat] ⛔ Round {FORCE_END_ROUND} — force-end injected. Main agent must close.",
+              file=sys.stderr)
 
     # --- Write the actual message ---
     seq = next_seq(meta)
@@ -260,11 +318,12 @@ def cmd_send(args):
     }
     append_record(out, record)
 
-    # Update turn
+    # Round-robin turn advance
     agents = meta["agents"]
-    if len(agents) == 2:
-        other = [a for a in agents if a != agent][0]
-        meta["whose_turn"] = other
+    if len(agents) >= 2:
+        idx = agents.index(agent)
+        next_idx = (idx + 1) % len(agents)
+        meta["whose_turn"] = agents[next_idx]
     meta["last_activity"] = now_ts()
     save_meta(session_path, meta)
 
@@ -280,81 +339,86 @@ def cmd_listen(args):
     register_agent(session_path, meta, agent)
     meta = load_meta(session_path)
 
-    # Wait for the other agent to register (they may not have joined yet)
     deadline = time.time() + args.timeout
-    watch = other_out_file(session_path, agent, meta)
-    while watch is None or not watch.exists():
+
+    # Wait until at least one peer is registered
+    while True:
+        meta = load_meta(session_path)
         if meta.get("status") in ("ended", "force_ended"):
             print(f"[SESSION CLOSED] Session is {meta['status']}. Exiting.", flush=True)
             sys.exit(3)
+        peers = [a for a in meta["agents"] if a != agent]
+        if peers:
+            break
         if time.time() > deadline:
-            print(f"[TIMEOUT] Other agent never appeared ({args.timeout}s). Notify human.", flush=True)
+            print(f"[TIMEOUT] No peers registered ({args.timeout}s). Notify human.", flush=True)
             sys.exit(2)
         time.sleep(1)
+
+    print(
+        f"[agent_chat] Listening as {agent}; peers={peers}; timeout={args.timeout}s",
+        file=sys.stderr, flush=True,
+    )
+
+    cursors = dict(meta.get("read_cursors", {}).get(agent, {}))
+    # cursors: {peer_name: n_records_consumed}
+
+    while True:
         meta = load_meta(session_path)
-        watch = other_out_file(session_path, agent, meta)
+        if meta.get("status") in ("ended", "force_ended"):
+            print(
+                f"\n[SESSION CLOSED] Session is {meta['status']}. "
+                "No further messages expected. Exiting.",
+                flush=True,
+            )
+            sys.exit(3)
 
-    # Per-agent read cursor: how many lines of the other agent's file have we already consumed?
-    read_key = f"read_{agent}"
-    skip = meta.get(read_key, 0)
+        peers = [a for a in meta["agents"] if a != agent]
+        name_for = dict(zip(meta["agents"], meta["agent_names"]))
 
-    print(f"[agent_chat] Listening on {watch.name} (from line {skip}, timeout {args.timeout}s)...",
-          file=sys.stderr, flush=True)
+        all_unread = []  # list[(peer, record)]
+        new_per_peer = {}
+        for peer in peers:
+            fpath = session_path / f"{name_for[peer]}_out.jsonl"
+            records = read_records(fpath)
+            consumed = cursors.get(peer, 0)
+            unread = records[consumed:]
+            new_per_peer[peer] = len(unread)
+            for rec in unread:
+                all_unread.append((peer, rec))
 
-    deadline = time.time() + args.timeout
-    lines_processed = 0
+        all_unread.sort(key=lambda x: x[1].get("seq", 0))
+        has_msg = any(rec.get("type") == "message" for _, rec in all_unread)
 
-    with open(watch) as f:
-        # Seek past already-read lines
-        for _ in range(skip):
-            f.readline()
-
-        while True:
-            line = f.readline()
-            if line:
-                line = line.strip()
-                if not line:
-                    continue
-                lines_processed += 1
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-
+        whose = meta.get("whose_turn", "either")
+        # Strict: only exit when it's our turn. "either" never triggers exit —
+        # it means no one has sent yet, so there can't be a message anyway.
+        if whose == agent and has_msg:
+            for peer, rec in all_unread:
                 sender = rec.get("from", "?")
                 msg = rec.get("msg", "")
                 mtype = rec.get("type", "message")
-
                 if mtype == "message":
                     print(f"\n[{sender}]: {msg}", flush=True)
-                    # Persist updated cursor so next listen call skips this message
-                    meta = load_meta(session_path)
-                    meta[read_key] = skip + lines_processed
-                    save_meta(session_path, meta)
-                    return  # ping-pong: received one message, our turn now
                 else:
-                    # System message: print and continue listening
                     print(f"\n[SYSTEM]: {msg}", flush=True)
+            # Persist cursors based on what we actually consumed
+            new_cursors = dict(cursors)
+            for peer in peers:
+                new_cursors[peer] = cursors.get(peer, 0) + new_per_peer[peer]
+            meta = load_meta(session_path)
+            meta.setdefault("read_cursors", {})[agent] = new_cursors
+            save_meta(session_path, meta)
+            return
 
-            else:
-                # Check if session has been closed by the other agent
-                current_meta = load_meta(session_path)
-                if current_meta.get("status") in ("ended", "force_ended"):
-                    print(
-                        f"\n[SESSION CLOSED] Session is {current_meta['status']}. "
-                        "No further messages expected. Exiting.",
-                        flush=True
-                    )
-                    sys.exit(3)
-
-                if time.time() > deadline:
-                    print(
-                        f"\n[TIMEOUT] No message in {args.timeout}s. "
-                        "Check if the other agent is still active. Notify human if stuck.",
-                        flush=True
-                    )
-                    sys.exit(2)
-                time.sleep(0.5)
+        if time.time() > deadline:
+            print(
+                f"\n[TIMEOUT] No turn-message in {args.timeout}s. "
+                "Check if peers are still active. Notify human if stuck.",
+                flush=True,
+            )
+            sys.exit(2)
+        time.sleep(0.5)
 
 
 def cmd_status(args):
@@ -366,10 +430,17 @@ def cmd_status(args):
     print(f"Session:       {meta['session_id']}")
     print(f"Status:        {meta['status']}")
     print(f"Main agent:    {meta.get('main_agent', 'not set')}")
-    print(f"Agents:        {', '.join(meta.get('agents', []))}")
+    print(f"Participants:  {', '.join(meta.get('agents', []))} "
+          f"({'pre-declared' if meta.get('predeclared') else 'lazy'})")
     print(f"Round:         {r}")
     print(f"Whose turn:    {meta['whose_turn']}")
     print(f"Last activity: {meta['last_activity']}")
+    counts = meta.get("msg_counts", {})
+    if counts:
+        per_agent = ", ".join(f"{a}={n}" for a, n in counts.items())
+        print(f"Messages:      {per_agent}")
+    if meta.get("setup"):
+        print(f"Setup prompts: {len(meta['setup'])} recorded")
     if meta.get("wrap_up_sent"):
         print("⚠  Wrap-up reminder sent at round 50")
     if meta.get("force_end_sent"):
@@ -390,6 +461,31 @@ def cmd_end(args):
     print(f"[agent_chat] Generate transcript: python agent_chat.py transcript --session {args.session}")
 
 
+def cmd_record_prompt(args):
+    sessions_dir = get_sessions_dir()
+    session_path = sessions_dir / args.session
+    meta = load_meta(session_path)
+
+    if args.prompt_file:
+        prompt_text = Path(args.prompt_file).read_text()
+    elif args.prompt:
+        prompt_text = args.prompt
+    else:
+        print("[agent_chat] Provide --prompt or --prompt-file", file=sys.stderr)
+        sys.exit(1)
+
+    meta.setdefault("setup", []).append({
+        "launched_by": args.by,
+        "target": args.target,
+        "ts": now_ts(),
+        "prompt": prompt_text,
+        "launcher": args.launcher,
+    })
+    save_meta(session_path, meta)
+    print(f"[agent_chat] Setup prompt recorded for target='{args.target}' "
+          f"(launched by '{args.by}', {len(prompt_text)} chars)")
+
+
 def cmd_transcript(args):
     sessions_dir = get_sessions_dir()
     session_path = sessions_dir / args.session
@@ -398,35 +494,27 @@ def cmd_transcript(args):
     agents = meta.get("agents", [])
     names = meta.get("agent_names", [])
 
-    # Read all records from both files
+    # Read all records from every agent's file
     all_records = []
-    seen_system_seqs = set()
+    seen_system = set()
 
     for name in names:
         fpath = session_path / f"{name}_out.jsonl"
         if not fpath.exists():
             continue
-        with open(fpath) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
+        for rec in read_records(fpath):
+            # Deduplicate system messages: every listener may have flushed the
+            # same notice into their stream when they pulled unread, but they
+            # also exist once in the original sender's file.
+            if rec.get("type") != "message":
+                key = (rec.get("type"), rec.get("msg", "")[:60])
+                if key in seen_system:
                     continue
-                try:
-                    rec = json.loads(line)
-                    # Deduplicate system messages by (type, first-50-chars-of-msg)
-                    if rec.get("type") != "message":
-                        key = (rec.get("type"), rec.get("msg", "")[:60])
-                        if key in seen_system_seqs:
-                            continue
-                        seen_system_seqs.add(key)
-                    all_records.append(rec)
-                except json.JSONDecodeError:
-                    pass
+                seen_system.add(key)
+            all_records.append(rec)
 
-    # Sort by seq
     all_records.sort(key=lambda r: r.get("seq", 0))
 
-    # Build markdown — simple alternating format
     lines = [
         "# Agent Chat Transcript",
         "",
@@ -437,19 +525,59 @@ def cmd_transcript(args):
         lines.append(f"**Ended:** {meta['ended']}  ")
     lines += [
         f"**Participants:** {', '.join(agents)}  ",
+        f"**Main agent:** {meta.get('main_agent', '?')}  ",
         f"**Rounds:** {compute_round(meta)}  ",
         "",
         "---",
         "",
     ]
 
+    setup = meta.get("setup") or []
+    if setup:
+        lines += [
+            "## Subagent setup",
+            "",
+            "Prompts and launcher commands the main agent used to spawn each subagent. "
+            "Useful for auditing whether the discussion was set up with adequate context.",
+            "",
+        ]
+        for entry in setup:
+            target = entry.get("target", "?")
+            by = entry.get("launched_by", "?")
+            ts = entry.get("ts", "?")
+            lines.append(f"### Spawned `{target}` (by `{by}` at {ts})")
+            lines.append("")
+            if entry.get("launcher"):
+                lines.append("**Launcher command:**")
+                lines.append("")
+                lines.append("```")
+                lines.append(entry["launcher"])
+                lines.append("```")
+                lines.append("")
+            lines.append("**Prompt:**")
+            lines.append("")
+            # Use 4-backtick fence in case prompt itself contains 3-backtick code blocks
+            lines.append("````markdown")
+            lines.append(entry.get("prompt", ""))
+            lines.append("````")
+            lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    lines.append("## Conversation")
+    lines.append("")
+
     for rec in all_records:
         mtype = rec.get("type", "message")
         sender = rec.get("from", "?")
         msg = rec.get("msg", "")
+        rnd = rec.get("round")
 
         if mtype == "message":
-            lines.append(f"**{sender}:**")
+            header = f"**{sender}**"
+            if rnd is not None:
+                header += f" — round {rnd}"
+            lines.append(header)
             lines.append("")
             lines.append(msg)
             lines.append("")
@@ -490,11 +618,17 @@ def cmd_list(args):
 # ---------------------------------------------------------------------------
 
 def main():
-    p = argparse.ArgumentParser(description="Ping-pong inter-agent chat")
+    p = argparse.ArgumentParser(description="Multi-agent round-robin chat")
     sub = p.add_subparsers(dest="command", required=True)
 
     sp = sub.add_parser("new-session", help="Create a new chat session")
     sp.add_argument("--name", help="Optional label appended to session ID")
+    sp.add_argument(
+        "--participants", nargs="+", metavar="AGENT",
+        help="Pre-declare 2..N participants by name (round-robin order). "
+             "First listed is conventionally the main agent. "
+             "Omit for legacy lazy 2-agent mode.",
+    )
 
     sp = sub.add_parser("send", help="Send a message")
     sp.add_argument("message")
@@ -502,11 +636,11 @@ def main():
     sp.add_argument("--as", dest="as_agent", required=True, metavar="AGENT")
     sp.add_argument("--force", action="store_true", help="Send even if not your turn")
 
-    sp = sub.add_parser("listen", help="Block until the other agent sends a message")
+    sp = sub.add_parser("listen", help="Block until it's your turn AND a peer has sent a new message")
     sp.add_argument("--session", required=True)
     sp.add_argument("--as", dest="as_agent", required=True, metavar="AGENT")
-    sp.add_argument("--timeout", type=int, default=DEFAULT_LISTEN_TIMEOUT,
-                    metavar="SEC", help=f"Seconds before giving up (default {DEFAULT_LISTEN_TIMEOUT})")
+    sp.add_argument("--timeout", type=int, default=DEFAULT_LISTEN_TIMEOUT, metavar="SEC",
+                    help=f"Seconds before giving up (default {DEFAULT_LISTEN_TIMEOUT})")
 
     sp = sub.add_parser("status", help="Show session state")
     sp.add_argument("--session", required=True)
@@ -514,6 +648,19 @@ def main():
     sp = sub.add_parser("end", help="Mark session as ended")
     sp.add_argument("--session", required=True)
     sp.add_argument("--as", dest="as_agent", required=True, metavar="AGENT")
+
+    sp = sub.add_parser("record-prompt",
+                        help="Save a subagent setup prompt + launcher into the session for audit")
+    sp.add_argument("--session", required=True)
+    sp.add_argument("--by", required=True, metavar="AGENT",
+                    help="Main agent that spawned the subagent")
+    sp.add_argument("--target", required=True, metavar="AGENT",
+                    help="Subagent name being spawned")
+    sp.add_argument("--prompt", help="Prompt text (or use --prompt-file)")
+    sp.add_argument("--prompt-file", dest="prompt_file",
+                    help="Path to prompt file (preferred for multi-line prompts)")
+    sp.add_argument("--launcher",
+                    help="Optional launcher command line, recorded verbatim for audit")
 
     sp = sub.add_parser("transcript", help="Generate Markdown transcript")
     sp.add_argument("--session", required=True)
@@ -529,6 +676,7 @@ def main():
         "listen": cmd_listen,
         "status": cmd_status,
         "end": cmd_end,
+        "record-prompt": cmd_record_prompt,
         "transcript": cmd_transcript,
         "list": cmd_list,
     }
