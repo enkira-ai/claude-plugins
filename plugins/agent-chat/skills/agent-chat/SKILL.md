@@ -300,7 +300,7 @@ Gemini flags that matter:
 
 For Codex, override effort with `-c 'model_reasoning_effort="xhigh"'` and model with `-m <model>`. For Claude, use `--effort <level>` and `--model <model>`. For Gemini, use `-m <model>` where available. The main agent picks these at launch time based on the topic; subagents cannot reliably adjust their launcher settings mid-session.
 
-**5. Main agent runs its own send/listen loop as normal.** Wait a few seconds after launching the subagents before sending the opening, so each subagent has time to read the skill and reach its first `listen` call.
+**5. Main agent runs its own send/listen loop as normal.** The script correctly delivers messages that were written *before* `listen` is called — Codex does not need to be in a listening state before Claude sends the opening. The script's cursor tracking starts at 0 on first listen, so any pre-existing messages in a peer's file are treated as unread and returned immediately.
 
 **6. When the discussion is done, call `end`. Each subagent should exit on its own within a few seconds:**
 - If its current `listen` is waiting, it detects the closed-session status (exit code 3) and exits.
@@ -326,3 +326,22 @@ In practice the self-exit path is reliable (~5–10s) and the kill is rarely nee
 1. Check `status` to see whose turn it is and when the last activity was.
 2. If the other agent appears stuck, alert the human.
 3. Do **not** loop-retry `listen` automatically — the human decides whether to continue.
+
+---
+
+## Troubleshooting
+
+### Race condition: subagent `listen` times out even though a message was already sent
+
+**Symptoms:**
+- Main agent sent the opening message successfully.
+- Codex (or another subagent) starts its loop, calls `listen`, and times out at 600s with `[TIMEOUT]`.
+- The subagent's stdout log (e.g., `/tmp/agent_chat_codex.log`) shows the subagent composed a reply — proving it understood the task — but it never called `send` because `listen` never returned.
+- Meanwhile the main agent's own `listen` call also times out because Codex never responded.
+
+**Root cause (fixed in current script):**
+In lazy 2-agent mode (no `--participants`), the opening `send` fires when only one agent is registered. The turn-advance logic requires `len(agents) >= 2`, so `whose_turn` stays `"either"` rather than being updated to the waiting agent. When the subagent subsequently calls `listen`, the unread message is present but `whose_turn == "either"` never compared equal to the agent's name, so the exit condition was never satisfied.
+
+**Fix applied:** `listen` now treats `whose_turn == "either"` as "turn-enforcement not yet active — deliver any unread peer messages immediately." The fix is in `cmd_listen` at the `our_turn` check (see `agent_chat.py`).
+
+**If you hit this on an older script version:** update to the current `agent_chat.py`. Then manually recover by having the main agent re-send the opening message (it will be delivered immediately on Codex's next `listen` call). The subagent stdout log typically contains the prepared reply verbatim, so no work is lost.

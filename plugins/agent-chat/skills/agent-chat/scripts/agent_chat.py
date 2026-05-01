@@ -391,9 +391,13 @@ def cmd_listen(args):
         has_msg = any(rec.get("type") == "message" for _, rec in all_unread)
 
         whose = meta.get("whose_turn", "either")
-        # Strict: only exit when it's our turn. "either" never triggers exit —
-        # it means no one has sent yet, so there can't be a message anyway.
-        if whose == agent and has_msg:
+        # Exit when it's our turn AND a peer has an unread message.
+        # "either" means turn-enforcement is not yet active (lazy 2-agent mode:
+        # the first send fires before the second agent registers, so whose_turn
+        # is never updated from "either"). Treat it as "anyone's turn" — if
+        # there's an unread peer message it is for us.
+        our_turn = (whose == agent or whose == "either")
+        if our_turn and has_msg:
             for peer, rec in all_unread:
                 sender = rec.get("from", "?")
                 msg = rec.get("msg", "")
