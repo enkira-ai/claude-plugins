@@ -1,0 +1,1104 @@
+// scenes/scenes_full.jsx
+// FULL reunion video composition (~6:38).
+// Loaded after primitives.jsx + primitives_full.jsx + photos_data.js.
+//
+// Storyboard (absolute Stage time, with 0.4s scene-to-scene crossfade):
+//   0:00.0 SceneTitleFull             2.5s
+//   0:02.5 SceneVideoBoWen1           9.92s — 文博 引子
+//   0:12.4 SceneTransitionUnlock      5.0s — 黑板"解锁记忆"
+//   0:17.4 SceneVideoChenGongyu      71.87s — OPEN, 找回笔记本
+//   1:29.3 SceneBlock1Unlock         14.0s — 笔记本→寝室→古林
+//   1:43.3 SceneVideoLiChengdong     15.38s — 诗意"我爱无比"
+//   1:58.7 SceneBlock2Memories       30.0s — 共同的回忆
+//   2:28.7 SceneVideoYuWanqing       27.6s — 西雅图
+//   2:56.3 SceneTransUnreserved       5.0s — 不约而同 + δS=0
+//   3:01.3 SceneBlock3Mountains      35.0s — 三川五岳·游学四方
+//   3:36.3 SceneVideoZhangWang       38.72s — 波特兰"我爱物理"
+//   4:15.0 SceneBlock4Roots          30.0s — 物理之根
+//   4:45.0 SceneVideoGuoXing         48.21s — 旧金山
+//   5:33.2 SceneTransSeparate         5.0s — 殊途 + Σ_paths e^iS/ℏ
+//   5:38.2 SceneBlock5Evolution      28.0s — 路径积分 + ghost paths + ghost photos
+//   6:06.2 SceneTransConverge         5.0s — 同归 + ∫𝒟x → |ψ⟩ Bell state morph
+//   6:11.2 SceneVideoHuangZhangCheng 29.31s — CLOSE 玩物理永远年轻
+//   6:40.5 SceneOutroFinal            8.0s — invariant + 我爱物理 + logos + producer credit
+// Total ≈ 6:48
+
+const CF = 0.4; // crossfade overlap between adjacent scenes
+
+const TF = (() => {
+  const t = {};
+  let c = 0;
+  function add(name, dur) {
+    t[name + 'Start'] = c;
+    t[name + 'End']   = c + dur + CF; // sprite stays mounted through crossfade tail
+    t[name + 'Dur']   = dur + CF;
+    c += dur;
+  }
+  add('title',           2.5);
+  add('boWen',           9.92);
+  add('unlock',          5.0);
+  add('chen',           71.87);
+  add('block1',         14.0);
+  add('li',             15.38);
+  add('block2',         30.0);
+  add('yu',             27.6);
+  add('transUnres',      5.0);  // 不约而同, 1.5 → 3 → 5
+  add('block3',         35.0);
+  add('zw',             38.72);
+  add('block4',         30.0);
+  add('guo',            48.21);
+  add('transSeparate',   5.0);  // 殊途, 1.5 → 3 → 5
+  add('block5',         28.0);
+  add('transConverge',   5.0);  // 同归 + formula morph, 3 → 5
+  add('hzc',            29.31);
+  add('outro',           8.0);  // PHYSICS·INVARIANT + 我爱物理 + 3 logos + producer credit
+  t.TOTAL = c;
+  t.CF = CF;
+  return t;
+})();
+
+// ── Helper: flatten a block's subfolder photos into a PhotoBlock list ──────
+function flattenBlock(blockKey, subOrder, opts = {}) {
+  const { dwell = 1.0 } = opts;
+  const out = [];
+  const block = PHOTOS[blockKey] || {};
+  for (const sub of subOrder) {
+    const files = block[sub] || [];
+    for (const src of files) out.push({ src, dwell });
+  }
+  return out;
+}
+
+// ── Scene 1: Title (0 - 2.5s) ───────────────────────────────────────────────
+function SceneTitleFull() {
+  return (
+    <Sprite start={TF.titleStart} end={TF.titleEnd}>
+      {({ localTime }) => {
+        const formulaT = clamp(localTime / 2.0, 0, 1);
+        const formulaReveal = Easing.easeOutCubic(formulaT) * 100;
+        const subT = clamp((localTime - 0.5) / 1.5, 0, 1);
+        const subEase = Easing.easeOutCubic(subT);
+        const fadeOut = 1 - clamp((localTime - 2.5) / CF, 0, 1);
+        return (
+          <div style={{ position: 'absolute', inset: 0, opacity: fadeOut }}>
+            <ChalkboardBg opacity={0.06}/>
+            <div style={{
+              position: 'absolute', left: 960, top: 200,
+              transform: 'translateX(-50%)',
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', gap: 24,
+            }}>
+              <div style={{ fontFamily: FONTS.mono, fontSize: 22, color: COLORS.chalkDim,
+                letterSpacing: '0.6em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                NANJING UNIVERSITY · PHYSICS · 2002
+              </div>
+              <div style={{ fontFamily: FONTS.serifCn, fontSize: 132, color: COLORS.chalk,
+                letterSpacing: '0.18em', fontWeight: 500, whiteSpace: 'nowrap',
+                textShadow: '0 0 30px rgba(244,238,222,0.15)' }}>
+                南大物理 · 廿载
+              </div>
+              <div style={{ fontFamily: FONTS.serifCn, fontSize: 36, color: COLORS.chalk,
+                letterSpacing: '0.32em', whiteSpace: 'nowrap', opacity: 0.85 }}>
+                毕业二十周年 · 庆
+              </div>
+              <div style={{ fontFamily: FONTS.serifEn, fontSize: 30, fontStyle: 'italic',
+                color: COLORS.chalkDim, letterSpacing: '0.12em',
+                whiteSpace: 'nowrap', marginTop: 6 }}>
+                2006 — 2026
+              </div>
+            </div>
+            <div style={{
+              position: 'absolute', left: 960, top: 720,
+              transform: 'translateX(-50%)',
+              fontFamily: FONTS.serifEn, fontStyle: 'italic',
+              fontSize: 110, color: COLORS.chalk,
+              letterSpacing: '0.04em',
+              textShadow: '0 0 30px rgba(244,238,222,0.18)',
+              whiteSpace: 'nowrap',
+            }}>
+              <span style={{
+                display: 'inline-block',
+                clipPath: `inset(0 ${100 - formulaReveal}% 0 0)`,
+                WebkitClipPath: `inset(0 ${100 - formulaReveal}% 0 0)`,
+              }}>S = k · log W</span>
+            </div>
+            <div style={{
+              position: 'absolute', left: 960, top: 880,
+              transform: 'translateX(-50%)',
+              fontFamily: FONTS.serifEn, fontStyle: 'italic',
+              fontSize: 28, color: COLORS.chalkDim,
+              letterSpacing: '0.06em',
+              opacity: subEase,
+              whiteSpace: 'nowrap',
+            }}>entropy increases · but some things stay entangled</div>
+          </div>
+        );
+      }}
+    </Sprite>
+  );
+}
+
+// ── Scene 2: 文博 引子 ──────────────────────────────────────────────────────
+function SceneVideoBoWen1() {
+  return (
+    <Sprite start={TF.boWenStart} end={TF.boWenEnd}>
+      <VideoClip src="videos/2026nju-bo-wen-1.mp4" width={1920} height={1080} fillMode="cover"/>
+      <PersistentEntropyChalkFull/>
+    </Sprite>
+  );
+}
+
+// ── Scene 3: 解锁记忆 (5s) ──────────────────────────────────────────────────
+function SceneTransitionUnlock() {
+  return (
+    <Sprite start={TF.unlockStart} end={TF.unlockEnd}>
+      <TransitionCard
+        zh="解锁记忆"
+        formula="找回 20 年前的密码"
+        en="Find The Password"
+      />
+      <PersistentEntropyChalkFull/>
+    </Sprite>
+  );
+}
+
+// ── Scene 4: 陈公羽 OPEN ────────────────────────────────────────────────────
+function SceneVideoChenGongyu() {
+  return (
+    <Sprite start={TF.chenStart} end={TF.chenEnd}>
+      <VideoClip src="videos/陈公羽二班021122005.mp4" width={1920} height={1080} fillMode="contain"/>
+      <PersistentEntropyChalkFull/>
+    </Sprite>
+  );
+}
+
+// ── Scene 5: Block 1 (14s, 自定义节奏曲线) ──────────────────────────────────
+function SceneBlock1Unlock() {
+  const photos = (() => {
+    const b1 = PHOTOS.block1;
+    const list = [];
+    // 1. Trigger (long hold) — iconic laptop
+    list.push({ src: '_curated/block1_解锁记忆/笔记本回响/笔记本回响_01.jpg', dwell: 2.5, kenBurns: 'in' });
+    // 2. Fast flickers
+    const flickers = (b1['笔记本回响'] || []).filter(s => !s.endsWith('笔记本回响_01.jpg'));
+    for (const s of flickers.slice(0, 3)) list.push({ src: s, dwell: 0.18, kenBurns: 'flicker' });
+    // 3. Decelerating shards
+    const shards = [...(b1['寝室回响'] || []), ...(b1['少数人合影（还记得当年吗）'] || [])];
+    const N = shards.length;
+    const dMin = 0.32, dMax = 1.0;
+    for (let i = 0; i < N; i++) {
+      const t = N > 1 ? i / (N - 1) : 0;
+      const eased = Math.pow(t, 1.5);
+      list.push({ src: shards[i], dwell: dMin + (dMax - dMin) * eased });
+    }
+    // 4. Stable end — 古林联谊
+    if (b1['古林联谊'] && b1['古林联谊'][0]) {
+      list.push({ src: b1['古林联谊'][0], dwell: 2.0, kenBurns: 'in' });
+    }
+    return list;
+  })();
+
+  return (
+    <Sprite start={TF.block1Start} end={TF.block1End}>
+      <PhotoBlock photos={photos} bgColor={COLORS.bg} globalFadeOut={CF}/>
+      <BlockTitle cn="解锁记忆" sub="找回 20 年前的密码" en="FIND THE PASSWORD" fadeOutDur={CF}/>
+      <PersistentEntropyChalkFull/>
+    </Sprite>
+  );
+}
+
+// ── Scene 6: 李成栋 ─────────────────────────────────────────────────────────
+function SceneVideoLiChengdong() {
+  return (
+    <Sprite start={TF.liStart} end={TF.liEnd}>
+      <VideoClip src="videos/李成栋.mp4" width={1920} height={1080} fillMode="contain"/>
+      <PersistentEntropyChalkFull/>
+    </Sprite>
+  );
+}
+
+// ── Scene 7: Block 2 共同的回忆 (30s) ───────────────────────────────────────
+function SceneBlock2Memories() {
+  const subOrder = ['课堂实验', '校园生活', '辩论队', '足球队', '学生工作', '吃吃喝喝', '各种搞怪', '书法墨宝'];
+  const photos = flattenBlock('block2', subOrder, { dwell: 1.0 });
+  return (
+    <Sprite start={TF.block2Start} end={TF.block2End}>
+      <PhotoBlock photos={photos} globalFadeOut={CF}/>
+      <BlockTitle cn="共同的回忆" sub="能文能武 · 吃喝玩乐"
+        en="LIBERAL · SCHOLARLY · EVERYDAY" fadeOutDur={CF}/>
+      <PersistentEntropyChalkFull/>
+    </Sprite>
+  );
+}
+
+// ── Scene 8: 于婉卿 + 严迪新 (西雅图) ───────────────────────────────────────
+function SceneVideoYuWanqing() {
+  return (
+    <Sprite start={TF.yuStart} end={TF.yuEnd}>
+      <VideoClip src="videos/于婉卿_final.mp4" width={1920} height={1080} fillMode="contain"/>
+      <PersistentEntropyChalkFull/>
+    </Sprite>
+  );
+}
+
+// ── Scene 9: 不约而同 transition (5s, custom chalk-path diagram) ────────────
+// Designed via agent-chat with Codex. Replaces a bare formula card with a
+// path-family chalk diagram + concise gloss. Candidates fade to 22% (not 0)
+// so they linger as a visual prologue for the upcoming 殊途/Σ paths card.
+function SceneTransUnreserved() {
+  // 6 candidate Bezier paths from 学校 to 山顶 — pre-baked control points
+  // (deterministic, not random per-frame) for chalk irregularity.
+  const candidates = [
+    { c1: [700,  330], c2: [1140, 380] },
+    { c1: [720,  500], c2: [1200, 360] },
+    { c1: [780,  220], c2: [1100, 600] },
+    { c1: [760,  680], c2: [1200, 500] },
+    { c1: [700,  370], c2: [1080, 290] },
+    { c1: [820,  610], c2: [1180, 450] },
+  ];
+  // Actual ("the chosen one") path — gentler, central
+  const actual = { c1: [740, 470], c2: [1190, 410] };
+
+  const start = { x: 430, y: 590 };
+  const peak  = { x: 1490, y: 430 };
+
+  return (
+    <Sprite start={TF.transUnresStart} end={TF.transUnresEnd}>
+      {({ localTime, duration }) => {
+        const fadeIn = clamp(localTime / 0.4, 0, 1);
+        const fadeOut = 1 - clamp((localTime - (duration - CF)) / CF, 0, 1);
+        const card = fadeIn * fadeOut;
+
+        const zhT = Easing.easeOutCubic(clamp(localTime / 0.6, 0, 1));
+        const bridgeT = Easing.easeOutCubic(clamp((localTime - 0.5) / 0.7, 0, 1));
+        const diaT = Easing.easeOutCubic(clamp((localTime - 0.7) / 0.4, 0, 1));
+
+        // Formula reveal at 2.8s, gloss at 3.6s
+        const formulaT = clamp((localTime - 2.8) / 1.0, 0, 1);
+        const formulaReveal = Easing.easeOutCubic(formulaT) * 100;
+        const glossT = clamp((localTime - 3.6) / 0.7, 0, 1);
+
+        const fadeCandidatesFactor = 1 - clamp((localTime - 2.0) / 1.0, 0, 1) * 0.78; // → 0.22
+
+        return (
+          <div style={{ position: 'absolute', inset: 0, opacity: card }}>
+            <ChalkboardBg opacity={0.06}/>
+
+            {/* Top: 不约而同 */}
+            <div style={{
+              position: 'absolute', top: 110, left: 960,
+              transform: `translateX(-50%) translateY(${(1 - zhT) * 14}px)`,
+              fontFamily: FONTS.serifCn, fontSize: 130, color: COLORS.chalk,
+              letterSpacing: '0.20em', fontWeight: 500,
+              textShadow: '0 0 30px rgba(244,238,222,0.22)',
+              opacity: zhT,
+              whiteSpace: 'nowrap',
+            }}>不约而同</div>
+
+            {/* Bridge */}
+            <div style={{
+              position: 'absolute', top: 280, left: 960,
+              transform: 'translateX(-50%)',
+              fontFamily: FONTS.serifCn, fontSize: 30, color: COLORS.chalkDim,
+              letterSpacing: '0.10em',
+              opacity: bridgeT,
+              whiteSpace: 'nowrap',
+            }}>当年我们各自出游，却都选择了爬山</div>
+
+            {/* SVG path diagram */}
+            <svg style={{ position: 'absolute', left: 0, top: 0, pointerEvents: 'none' }}
+                 width="1920" height="1080">
+              <defs>
+                <radialGradient id="dot_glow">
+                  <stop offset="0%"   stopColor={COLORS.chalk} stopOpacity="0.7"/>
+                  <stop offset="100%" stopColor={COLORS.chalk} stopOpacity="0"/>
+                </radialGradient>
+              </defs>
+
+              {/* Mountain peak (2 chalk strokes, right side) */}
+              <g opacity={diaT * 0.9} style={{ filter: 'drop-shadow(0 0 6px rgba(244,238,222,0.10))' }}>
+                <path
+                  d={`M ${peak.x - 110} ${peak.y + 160} L ${peak.x} ${peak.y - 18} L ${peak.x + 100} ${peak.y + 130}`}
+                  stroke={COLORS.chalkDim}
+                  strokeWidth="3.5"
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d={`M ${peak.x - 30} ${peak.y + 56} L ${peak.x + 8} ${peak.y + 14} L ${peak.x + 36} ${peak.y + 40}`}
+                  stroke={COLORS.chalkDim}
+                  strokeWidth="2"
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  opacity="0.55"
+                />
+              </g>
+
+              {/* Start dot — 学校 */}
+              <g opacity={diaT}>
+                <circle cx={start.x} cy={start.y} r="22" fill="url(#dot_glow)"/>
+                <circle cx={start.x} cy={start.y} r="7"  fill={COLORS.chalk}/>
+                <text x={start.x} y={start.y + 52}
+                      textAnchor="middle"
+                      fill={COLORS.chalkDim}
+                      fontSize="22"
+                      fontFamily={FONTS.serifCn}
+                      letterSpacing="0.1em">学校</text>
+              </g>
+
+              {/* Peak dot — 山顶 */}
+              <g opacity={diaT}>
+                <circle cx={peak.x} cy={peak.y} r="22" fill="url(#dot_glow)"/>
+                <circle cx={peak.x} cy={peak.y} r="7"  fill={COLORS.chalk}/>
+                <text x={peak.x} y={peak.y - 28}
+                      textAnchor="middle"
+                      fill={COLORS.chalkDim}
+                      fontSize="22"
+                      fontFamily={FONTS.serifCn}
+                      letterSpacing="0.1em">山顶</text>
+              </g>
+
+              {/* Candidate paths — fade to 22% (don't fully erase) */}
+              {candidates.map((p, i) => {
+                const startT = 1.0 + i * 0.15;
+                const draw = Easing.easeOutCubic(clamp((localTime - startT) / 0.7, 0, 1));
+                const d = `M ${start.x} ${start.y} C ${p.c1[0]} ${p.c1[1]}, ${p.c2[0]} ${p.c2[1]}, ${peak.x} ${peak.y}`;
+                return (
+                  <g key={i} opacity={fadeCandidatesFactor}>
+                    {/* dusty layer */}
+                    <path
+                      d={d}
+                      pathLength="100"
+                      stroke={COLORS.chalkDim}
+                      strokeWidth="5"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity="0.20"
+                      style={{ strokeDasharray: 100, strokeDashoffset: 100 * (1 - draw) }}
+                    />
+                    {/* main stroke */}
+                    <path
+                      d={d}
+                      pathLength="100"
+                      stroke={COLORS.chalkDim}
+                      strokeWidth="2.2"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{ strokeDasharray: 100, strokeDashoffset: 100 * (1 - draw) }}
+                    />
+                  </g>
+                );
+              })}
+
+              {/* Actual path — the "chosen" classical route, white + thicker */}
+              {(() => {
+                const draw = Easing.easeOutCubic(clamp((localTime - 2.0) / 0.8, 0, 1));
+                const brightness = clamp((localTime - 2.0) / 0.8, 0, 1);
+                const d = `M ${start.x} ${start.y} C ${actual.c1[0]} ${actual.c1[1]}, ${actual.c2[0]} ${actual.c2[1]}, ${peak.x} ${peak.y}`;
+                return (
+                  <g>
+                    {/* outer glow */}
+                    <path
+                      d={d}
+                      pathLength="100"
+                      stroke={COLORS.chalk}
+                      strokeWidth="9"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={brightness * 0.25}
+                      style={{ strokeDasharray: 100, strokeDashoffset: 100 * (1 - draw), filter: 'blur(4px)' }}
+                    />
+                    {/* main bright stroke */}
+                    <path
+                      d={d}
+                      pathLength="100"
+                      stroke={COLORS.chalk}
+                      strokeWidth="3.8"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={brightness}
+                      style={{ strokeDasharray: 100, strokeDashoffset: 100 * (1 - draw) }}
+                    />
+                  </g>
+                );
+              })()}
+            </svg>
+
+            {/* Formula δS[路径] = 0 */}
+            <div style={{
+              position: 'absolute', top: 830, left: 960,
+              transform: 'translateX(-50%)',
+              fontFamily: FONTS.serifEn, fontStyle: 'italic',
+              fontSize: 60, color: COLORS.chalk,
+              letterSpacing: '0.04em',
+              textShadow: '0 0 22px rgba(244,238,222,0.20)',
+              whiteSpace: 'nowrap',
+            }}>
+              <span style={{
+                display: 'inline-block',
+                clipPath: `inset(0 ${100 - formulaReveal}% 0 0)`,
+                WebkitClipPath: `inset(0 ${100 - formulaReveal}% 0 0)`,
+              }}>
+                δS<span style={{ fontStyle: 'normal', fontFamily: FONTS.serifCn, padding: '0 0.06em' }}>[路径]</span>
+                {' = 0'}
+              </span>
+            </div>
+
+            {/* Gloss */}
+            <div style={{
+              position: 'absolute', top: 928, left: 960,
+              transform: 'translateX(-50%)',
+              fontFamily: FONTS.serifCn, fontSize: 22,
+              color: COLORS.chalkDim, letterSpacing: '0.10em',
+              opacity: glossT,
+              whiteSpace: 'nowrap',
+              display: 'flex', alignItems: 'center', gap: 14,
+            }}>
+              <span style={{
+                fontFamily: FONTS.mono,
+                letterSpacing: '0.4em', textTransform: 'uppercase',
+                fontSize: 18,
+              }}>stationary action</span>
+              <span style={{ opacity: 0.5 }}>·</span>
+              <span style={{ fontStyle: 'italic', fontFamily: FONTS.serifCn }}>
+                轻轻改路线，作用量不变
+              </span>
+            </div>
+
+            <PersistentEntropyChalkFull/>
+          </div>
+        );
+      }}
+    </Sprite>
+  );
+}
+
+// ── Scene 10: Block 3 三川五岳·游学四方 (35s) ───────────────────────────────
+function SceneBlock3Mountains() {
+  const subOrder = ['黄山', '泰山', '栖霞山·明孝陵', '徽杭古道', '火车上', '各处游玩', '骑行'];
+  const photos = flattenBlock('block3', subOrder, { dwell: 35.0 / 27 });
+  return (
+    <Sprite start={TF.block3Start} end={TF.block3End}>
+      <PhotoBlock photos={photos} globalFadeOut={CF}/>
+      <BlockTitle cn="三川五岳 · 游学四方" sub="同一个 Ψ，不同的采样"
+        en="PATHS · INDEPENDENTLY · CHOSEN" fadeOutDur={CF}/>
+      <PersistentEntropyChalkFull/>
+    </Sprite>
+  );
+}
+
+// ── Scene 11: 张智建 + 汪晨璐 (波特兰) ──────────────────────────────────────
+function SceneVideoZhangWang() {
+  return (
+    <Sprite start={TF.zwStart} end={TF.zwEnd}>
+      <VideoClip src="videos/张智建5班_汪晨璐2班.mp4" width={1920} height={1080} fillMode="contain"/>
+      <PersistentEntropyChalkFull/>
+    </Sprite>
+  );
+}
+
+// ── Scene 12: Block 4 物理之根 (30s) ────────────────────────────────────────
+// Narrative arc (按内容重排):
+//   1. 海门实习 — 工厂参观 → 设备操作 → 街头志愿
+//   2. 毕业前活动 — 卖书摆摊
+//   3. 毕业典礼正装 — 班级合影
+//   4. 毕业激动时刻 — 搞怪 / 扔帽子
+//   5. 各班合影
+//   6. CLIMAX — 物理系毕业全系大合照（长 hold + Ken Burns）
+function SceneBlock4Roots() {
+  const base = '_curated/block4_物理之根';
+  const dwell = 30.0 / 30.5;  // normal photos; climax holds 2.5x
+
+  // 海门实习 — 工厂 → 操作 → 志愿，社会实践弧
+  const haimen = [
+    '群众.jpg',
+    '工厂参观1.jpg',
+    '工厂参观2.jpg',
+    '工厂讲座.jpg',
+    '工厂机器.jpg',
+    '海门实习_03.jpg',
+    '海门实习_04.jpg',
+    '海门实习_06.jpg',
+    '海门实习_08.jpg',
+    '海门实习_09.jpg',
+    '海门实习_10.jpg',
+    '海门实习_11.jpg',
+    '海门实习_12.jpg',
+    '海门实习_13.jpg',
+  ];
+
+  // 毕业典礼 — 毕业前 → 正装 → 激动（不含大合照，那张是 climax）
+  const biyedianli = [
+    '毕业卖书.jpg',       // 跳蚤市场卖旧书
+    '毕业卖书2.jpg',
+    '毕业典礼_02.jpg',    // 校园建筑前正装
+    '毕业典礼_01.jpg',    // 班级正装合照
+    '毕业搞怪.jpg',       // 5 人学位服跳跃
+    '毕业搞怪2.jpg',      // 草坪 4 人搞怪
+    '毕业扔帽子.jpg',     // 扔帽子激动时刻
+  ];
+
+  // 班级合影 — 小群 → 系级 → 大合影
+  const banjihy = [
+    '班级合影_04.jpg',    // 5 班女同学
+    '班级合影_01.jpg',    // 班级在建筑物前
+    '班级合影_02.jpg',    // 班级在台阶前
+    '毕业典礼_09.jpg',    // 本科生举手欢呼
+    '毕业典礼_11.jpg',    // 本科生毕业合影
+    '毕业典礼_12.jpg',    // 本科毕业班合照
+    '班级合影_03.jpg',    // 校园门前大合影
+  ];
+
+  const photos = [
+    ...haimen.map(f => ({ src: `${base}/海门实习/${f}`, dwell })),
+    ...biyedianli.map(f => ({ src: `${base}/毕业典礼/${f}`, dwell })),
+    ...banjihy.map(f => ({ src: `${base}/班级合影/${f}`, dwell })),
+    // ★ CLIMAX: 物理系毕业全系大合照
+    { src: `${base}/毕业典礼/毕业全系大合照.jpg`, dwell: dwell * 2.5, kenBurns: 'in' },
+  ];
+
+  // Title swap point: after the 14 海门实习 photos
+  const haimenSwap = 14 * dwell;  // ≈ 13.77s
+
+  return (
+    <Sprite start={TF.block4Start} end={TF.block4End}>
+      {({ localTime, duration }) => {
+        const blockDur = duration - CF;
+        // Phase 1 title (海门实习): visible 0 to haimenSwap, crossfade ±0.4s
+        const xfade = 0.4;
+        const t1Out = clamp((haimenSwap - localTime) / xfade, 0, 1);
+        const t1In = clamp(localTime / 0.5, 0, 1);
+        const phase1Opacity = Math.min(t1In, t1Out);
+        // Phase 2 title (毕业): visible haimenSwap to end
+        const t2In = clamp((localTime - haimenSwap + xfade) / xfade, 0, 1);
+        const t2Out = clamp((blockDur - localTime) / 0.4, 0, 1);
+        const phase2Opacity = Math.min(t2In, t2Out);
+
+        return (
+          <>
+            <PhotoBlock photos={photos} globalFadeOut={CF}/>
+            <div style={{ opacity: phase1Opacity, willChange: 'opacity' }}>
+              <div style={{ position: 'absolute', left: 80, top: 60 }}>
+                <div style={{
+                  fontFamily: FONTS.mono, fontSize: 16, color: COLORS.chalkDim,
+                  letterSpacing: '0.32em', textTransform: 'uppercase',
+                }}>HAIMEN · 2005 SUMMER</div>
+                <div style={{
+                  fontFamily: FONTS.serifCn, fontSize: 48, color: COLORS.chalk,
+                  letterSpacing: '0.14em', marginTop: 10, fontWeight: 500,
+                  textShadow: '0 0 24px rgba(244,238,222,0.15)',
+                  whiteSpace: 'nowrap',
+                }}>海门实习</div>
+                <div style={{
+                  fontFamily: FONTS.serifEn, fontStyle: 'italic', fontSize: 24,
+                  color: COLORS.chalkDim, marginTop: 8, letterSpacing: '0.04em',
+                  whiteSpace: 'nowrap',
+                }}>社会实践 · 物理之始</div>
+              </div>
+            </div>
+            <div style={{ opacity: phase2Opacity, willChange: 'opacity' }}>
+              <div style={{ position: 'absolute', left: 80, top: 60 }}>
+                <div style={{
+                  fontFamily: FONTS.mono, fontSize: 16, color: COLORS.chalkDim,
+                  letterSpacing: '0.32em', textTransform: 'uppercase',
+                }}>JUNE 2006 · COMMENCEMENT</div>
+                <div style={{
+                  fontFamily: FONTS.serifCn, fontSize: 48, color: COLORS.chalk,
+                  letterSpacing: '0.14em', marginTop: 10, fontWeight: 500,
+                  textShadow: '0 0 24px rgba(244,238,222,0.15)',
+                  whiteSpace: 'nowrap',
+                }}>毕业</div>
+                <div style={{
+                  fontFamily: FONTS.serifEn, fontStyle: 'italic', fontSize: 24,
+                  color: COLORS.chalkDim, marginTop: 8, letterSpacing: '0.04em',
+                  whiteSpace: 'nowrap',
+                }}>南大物理 · 02 级 · 06 届</div>
+              </div>
+            </div>
+            <PersistentEntropyChalkFull/>
+          </>
+        );
+      }}
+    </Sprite>
+  );
+}
+
+// ── Scene 13: 郭晓宇 + 邢星 (旧金山) ────────────────────────────────────────
+function SceneVideoGuoXing() {
+  return (
+    <Sprite start={TF.guoStart} end={TF.guoEnd}>
+      <VideoClip src="videos/郭晓宇邢星_毕业二十年祝福_260501.mp4" width={1920} height={1080} fillMode="contain"/>
+      <PersistentEntropyChalkFull/>
+    </Sprite>
+  );
+}
+
+// ── Scene 14: 殊途 transition (3s) ──────────────────────────────────────────
+// 殊途 = paths diverge (each particle has its own trajectory).
+// Pairs with the new "同归" transition after Block 5.
+function SceneTransSeparate() {
+  return (
+    <Sprite start={TF.transSeparateStart} end={TF.transSeparateEnd}>
+      <TransitionCard
+        zh="殊 途"
+        formulaJsx={<SumOverPathsFormulaJsx/>}
+        en="Sum Over Histories"
+      />
+      <PersistentEntropyChalkFull/>
+    </Sprite>
+  );
+}
+
+// ── Scene 15: Block 5 路径积分 + ghost paths + ghost photos (28s) ───────────
+// Layout:
+//   Top (常驻):   ⟨f|i⟩ = ∫𝒟x e^(iS/ℏ)
+//   Mid:          evo timeline (主路径)
+//   Background:   ghost paths to 14 cities + 16 floating alumni photos
+//   Sub (early):  「每个粒子都有了自己的不同轨迹」(0.5s reveal, then dim持续)
+function SceneBlock5Evolution() {
+  const evoLayout = [
+    { src: 'photos/evo_2006.jpg', year: '2006', label: '入行 · 与导师', x: 380, y: 320, w: 220, h: 165, rot: -3, in: 1.5 },
+    { src: 'photos/evo_2008.jpg', year: '2008', label: '北京奥运', x: 600, y: 360, w: 230, h: 173, rot: 2, in: 3.0 },
+    { src: 'photos/evo_2009.jpg', year: '2009', label: '巴黎', x: 820, y: 320, w: 230, h: 173, rot: -1.5, in: 4.5 },
+    { src: 'photos/evo_2010.jpg', year: '2010', label: 'family', x: 1040, y: 380, w: 230, h: 173, rot: 1.5, in: 6.0 },
+    { src: 'photos/evo_2011.jpg', year: '2011', label: '实验室', x: 1260, y: 320, w: 240, h: 180, rot: -1, in: 7.5 },
+    { src: 'photos/evo_2013.jpg', year: '2013', label: '校友·正装', x: 460, y: 600, w: 230, h: 173, rot: 1, in: 9.0 },
+    { src: 'photos/evo_2022.jpg', year: '2022', label: 'family · skiing', x: 720, y: 640, w: 240, h: 180, rot: -2, in: 10.5 },
+    { src: 'photos/evo_2025.jpg', year: '2025', label: 'ICDH 2025', x: 980, y: 600, w: 240, h: 180, rot: 1.5, in: 12.0 },
+    { src: 'photos/evo_2026.jpg', year: '2026', label: 'IWAI · Montréal', x: 1240, y: 660, w: 240, h: 180, rot: -1.5, in: 13.5 },
+  ];
+
+  return (
+    <Sprite start={TF.block5Start} end={TF.block5End}>
+      {({ localTime, duration }) => {
+        // Global crossfade envelope
+        const blockDur = duration - CF;
+        const fadeIn = clamp(localTime / 0.4, 0, 1);
+        const fadeOut = 1 - clamp((localTime - blockDur) / CF, 0, 1);
+        const globalOpacity = fadeIn * fadeOut;
+
+        // Ghost path phase (0 - blockDur*0.93 grow, last 7% converge)
+        const ghostPhase = clamp(localTime / (blockDur * 0.93), 0, 1);
+
+        // Top formula reveal (slow, 1.5s)
+        const formulaT = clamp(localTime / 1.5, 0, 1);
+        const formulaReveal = Easing.easeOutCubic(formulaT) * 100;
+
+        // 3-line staggered subtitle — reveals one line at a time
+        const subtitleLines = [
+          { text: '毕业后这 20 年',                  revealAt: 1.0 },
+          { text: '我们每个粒子都有了自己的不同轨迹',     revealAt: 4.5 },
+          { text: '对其它粒子，只剩部分可观测',         revealAt: 9.0 },
+        ];
+        const subRevealDur = 1.6;
+        const subY0 = 800;
+        const subLineH = 60;
+
+        return (
+          <div style={{ position: 'absolute', inset: 0, opacity: globalOpacity, willChange: 'opacity' }}>
+            <ChalkboardBg opacity={0.05}/>
+
+            {/* Ghost paths layer */}
+            <GhostPaths phase={ghostPhase}/>
+
+            {/* Ghost photo floaters (block6 alumni photos as "other particles") */}
+            <GhostPhotoLayer
+              photos={BLOCK6_FLAT}
+              windowStart={2.0}
+              windowEnd={blockDur - 1.0}
+              holdDur={3.5}
+              fadeDur={0.6}
+              baseOpacity={0.50}
+            />
+
+            {/* Top formula (常驻) */}
+            <div style={{
+              position: 'absolute', top: 60, left: 960,
+              transform: 'translateX(-50%)',
+              fontFamily: FONTS.serifEn, fontStyle: 'italic',
+              fontSize: 50, color: COLORS.chalk,
+              letterSpacing: '0.04em',
+              textShadow: '0 0 24px rgba(244,238,222,0.18)',
+              whiteSpace: 'nowrap',
+              zIndex: 5,
+            }}>
+              <span style={{
+                display: 'inline-block',
+                clipPath: `inset(0 ${100 - formulaReveal}% 0 0)`,
+                WebkitClipPath: `inset(0 ${100 - formulaReveal}% 0 0)`,
+              }}>
+                <ReunionAmplitudeFormulaJsx/>
+              </span>
+            </div>
+
+            {/* Evo photos */}
+            {evoLayout.map((m, i) => {
+              const localT = localTime - m.in;
+              if (localT < 0) return null;
+              const fade = clamp(localT / 0.6, 0, 1);
+              const ease = Easing.easeOutCubic(fade);
+              const opacity = ease * 0.95;
+              const scale = 0.9 + 0.1 * ease;
+              return (
+                <div key={i} style={{
+                  position: 'absolute',
+                  left: m.x, top: m.y,
+                  width: m.w, height: m.h + 36,
+                  transform: `rotate(${m.rot}deg) scale(${scale})`,
+                  transformOrigin: 'center',
+                  opacity,
+                  pointerEvents: 'none',
+                  zIndex: 4,
+                }}>
+                  <div style={{
+                    width: m.w, height: m.h,
+                    background: COLORS.paper, padding: 6,
+                    boxShadow: '0 12px 28px -8px rgba(0,0,0,0.7), 0 4px 10px -4px rgba(0,0,0,0.5)',
+                    boxSizing: 'border-box',
+                  }}>
+                    <img src={m.src} alt="" style={{
+                      width: '100%', height: '100%',
+                      objectFit: 'cover',
+                      filter: 'sepia(0.18) saturate(0.92) brightness(0.96)',
+                      display: 'block',
+                    }}/>
+                  </div>
+                  <div style={{
+                    fontFamily: FONTS.mono, fontSize: 11, color: COLORS.chalkDim,
+                    letterSpacing: '0.18em', marginTop: 6, textTransform: 'uppercase',
+                    textAlign: 'center',
+                  }}>
+                    {m.year} · {m.label}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* 3-line staggered subtitle, chalk reveal animation */}
+            {subtitleLines.map((line, i) => {
+              const t = clamp((localTime - line.revealAt) / subRevealDur, 0, 1);
+              const reveal = Easing.easeOutCubic(t) * 100;
+              return (
+                <div key={i} style={{
+                  position: 'absolute',
+                  left: 960, top: subY0 + i * subLineH,
+                  transform: 'translateX(-50%)',
+                  fontFamily: FONTS.serifCn, fontSize: 32,
+                  color: COLORS.chalk, letterSpacing: '0.10em',
+                  fontWeight: 500,
+                  textShadow: '0 0 20px rgba(244,238,222,0.18)',
+                  whiteSpace: 'nowrap',
+                  zIndex: 5,
+                }}>
+                  <span style={{
+                    display: 'inline-block',
+                    clipPath: `inset(0 ${100 - reveal}% 0 0)`,
+                    WebkitClipPath: `inset(0 ${100 - reveal}% 0 0)`,
+                  }}>{line.text}</span>
+                </div>
+              );
+            })}
+
+            <PersistentEntropyChalkFull/>
+          </div>
+        );
+      }}
+    </Sprite>
+  );
+}
+
+// ── Scene 16: 同归 transition + formula morph (5s) ──────────────────────────
+// 0.0-0.7s: 同归 reveal (top)
+// 0.0-2.5s: ∫𝒟x e^(iS/ℏ) holding then fading
+// 1.5-3.5s: scatter glow (radial pulse at center)
+// 2.5-4.0s: |ψ⟩ = (|南京⟩ + |美国⟩) / √2 fading in
+// 3.5-4.5s: en tag "RE-ENTANGLED · 2026" fades in
+// 4.5-5.0s: hold + crossfade out
+function SceneTransConverge() {
+  return (
+    <Sprite start={TF.transConvergeStart} end={TF.transConvergeEnd}>
+      {({ localTime, duration }) => {
+        const cardOpacity =
+          localTime < 0.4
+            ? Easing.easeOutCubic(clamp(localTime / 0.4, 0, 1))
+            : localTime > duration - CF
+              ? 1 - Easing.easeInCubic(clamp((localTime - (duration - CF)) / CF, 0, 1))
+              : 1;
+
+        // 同归 reveal — 0.7s
+        const zhT = clamp(localTime / 0.7, 0, 1);
+        const zhEase = Easing.easeOutCubic(zhT);
+
+        // Formula 1 (path integral) — fully visible 0-1.0s, fading 1.0-2.5s
+        const f1Opacity = 1 - clamp((localTime - 1.0) / 1.5, 0, 1);
+
+        // Glow pulse — 1.5-3.5s, peak at 2.5s
+        const glowT = clamp((localTime - 1.5) / 2.0, 0, 1);
+        const glowAlpha = Math.sin(glowT * Math.PI);
+
+        // Formula 2 (Bell state) — reveal 2.5-4.0s
+        const f2T = clamp((localTime - 2.5) / 1.5, 0, 1);
+        const f2Reveal = Easing.easeOutCubic(f2T) * 100;
+
+        // EN tag — fade in 3.5-4.3s
+        const enT = clamp((localTime - 3.5) / 0.8, 0, 1);
+
+        return (
+          <div style={{ position: 'absolute', inset: 0, opacity: cardOpacity }}>
+            <ChalkboardBg opacity={0.06}/>
+
+            {/* 同归 */}
+            <div style={{
+              position: 'absolute', top: 220, left: 960,
+              transform: `translateX(-50%) translateY(${(1 - zhEase) * 14}px)`,
+              fontFamily: FONTS.serifCn, fontSize: 140, color: COLORS.chalk,
+              letterSpacing: '0.20em', fontWeight: 500,
+              textShadow: '0 0 30px rgba(244,238,222,0.22)',
+              opacity: zhEase,
+              whiteSpace: 'nowrap',
+            }}>同 归</div>
+
+            <div style={{
+              position: 'absolute', top: 470, left: 960,
+              transform: 'translateX(-50%)',
+              width: 240, height: 1, background: COLORS.chalkDim,
+              opacity: zhEase * 0.55,
+            }}/>
+
+            {/* Glow scatter */}
+            <div style={{
+              position: 'absolute', left: 960, top: 580,
+              transform: 'translate(-50%, -50%)',
+              width: 700, height: 700,
+              borderRadius: '50%',
+              background: `radial-gradient(circle, rgba(244,238,222,${glowAlpha * 0.18}) 0%, transparent 60%)`,
+              opacity: glowAlpha,
+              pointerEvents: 'none',
+            }}/>
+
+            {/* Formula 1: reunion amplitude (named bra-ket) fading */}
+            <div style={{
+              position: 'absolute', top: 540, left: 960,
+              transform: 'translateX(-50%)',
+              fontFamily: FONTS.serifEn, fontStyle: 'italic',
+              fontSize: 52, color: COLORS.chalk,
+              letterSpacing: '0.04em',
+              textShadow: '0 0 24px rgba(244,238,222,0.18)',
+              opacity: f1Opacity,
+              whiteSpace: 'nowrap',
+              filter: f1Opacity < 1 ? `blur(${(1 - f1Opacity) * 3}px)` : 'none',
+            }}><ReunionAmplitudeFormulaJsx/></div>
+
+            {/* Formula 2: Bell state — entangled state */}
+            <div style={{
+              position: 'absolute', top: 600, left: 960,
+              transform: 'translateX(-50%)',
+              fontFamily: FONTS.serifEn, fontStyle: 'italic',
+              fontSize: 80, color: COLORS.chalk,
+              letterSpacing: '0.04em',
+              textShadow: '0 0 28px rgba(244,238,222,0.22)',
+              whiteSpace: 'nowrap',
+              opacity: clamp(f2T * 1.2, 0, 1),
+            }}>
+              <span style={{
+                display: 'inline-block',
+                clipPath: `inset(0 ${100 - f2Reveal}% 0 0)`,
+                WebkitClipPath: `inset(0 ${100 - f2Reveal}% 0 0)`,
+              }}>|ψ⟩ = (|南京⟩ + |美国⟩) / √2</span>
+            </div>
+
+            {/* EN tag */}
+            <div style={{
+              position: 'absolute', bottom: 220, left: 960,
+              transform: 'translateX(-50%)',
+              fontFamily: FONTS.mono, fontSize: 22, color: COLORS.chalkDim,
+              letterSpacing: '0.5em', textTransform: 'uppercase',
+              opacity: enT * 0.85,
+              whiteSpace: 'nowrap',
+            }}>RE-ENTANGLED · 2026</div>
+
+            <PersistentEntropyChalkFull/>
+          </div>
+        );
+      }}
+    </Sprite>
+  );
+}
+
+// ── Scene 17: 黄张成 CLOSE ──────────────────────────────────────────────────
+function SceneVideoHuangZhangCheng() {
+  return (
+    <Sprite start={TF.hzcStart} end={TF.hzcEnd}>
+      <VideoClip src="videos/1班-黄张成.mp4" width={1920} height={1080} fillMode="contain"/>
+      <PersistentEntropyChalkFull/>
+    </Sprite>
+  );
+}
+
+// ── Scene 18: Outro — invariant + logos + producer credit (8s) ──────────────
+// Carries the "PHYSICS · THE INVARIANT" text moved over from Block 4.
+// Layout:
+//   Top-left (no animation, on from t=0):
+//                NJU logo (rotated -5deg, paper sticker), behind
+//                02 Physics logo (rotated +7deg, paper sticker, partially overlapping NJU)
+//   Top-center: PHYSICS · THE INVARIANT  /  我爱物理 · 不变量 (italic)
+//   Center:     and yes —  /  我 爱 物 理 (huge chalk)
+//   Mid-low:    entropy tagline italic
+//   Bottom:     PRODUCED BY 文博 · ENKIRA.AI  /  NEW YORK · 2026  (with small Enkira logo)
+//                  ↑ Enkira logo small, fades in last (~5s)
+function SceneOutroFinal() {
+  return (
+    <Sprite start={TF.outroStart} end={TF.outroEnd}>
+      {({ localTime, duration }) => {
+        const blockDur = duration - CF;
+        const fadeIn = clamp(localTime / 0.6, 0, 1);
+        const fadeOut = 1 - clamp((localTime - blockDur) / CF, 0, 1);
+        const card = fadeIn * fadeOut;
+
+        // Phased reveals
+        const invarT = clamp(localTime / 0.8, 0, 1);
+        const loveT = clamp((localTime - 0.6) / 1.0, 0, 1);
+        const subT = clamp((localTime - 1.4) / 0.7, 0, 1);
+        const creditT = clamp((localTime - 3.5) / 0.8, 0, 1);  // enkira appears with credit
+
+        return (
+          <div style={{ position: 'absolute', inset: 0, opacity: card }}>
+            <ChalkboardBg opacity={0.06}/>
+
+            {/* NJU logo — top-left, behind, tilted, no per-element animation */}
+            <div style={{
+              position: 'absolute', left: 60, top: 70,
+              background: COLORS.paper,
+              padding: '28px 34px',
+              boxShadow: '0 22px 44px -10px rgba(0,0,0,0.75), 0 6px 14px -6px rgba(0,0,0,0.5)',
+              transform: 'rotate(-5deg)',
+              transformOrigin: 'center',
+              zIndex: 1,
+            }}>
+              <img src="logos/nju.svg" alt="Nanjing University"
+                style={{ height: 240, width: 'auto', display: 'block' }}/>
+            </div>
+
+            {/* 02 Physics logo — overlapping NJU, slightly to right and below, tilted opposite */}
+            <div style={{
+              position: 'absolute', left: 250, top: 240,
+              background: COLORS.paper,
+              padding: '24px 30px',
+              boxShadow: '0 24px 46px -10px rgba(0,0,0,0.75), 0 6px 14px -6px rgba(0,0,0,0.5)',
+              transform: 'rotate(7deg)',
+              transformOrigin: 'center',
+              zIndex: 2,
+            }}>
+              <img src="logos/physics02.png" alt="NJU Physics 2002"
+                style={{ height: 200, width: 'auto', display: 'block' }}/>
+            </div>
+
+            {/* Top: invariant tag (right side to balance left logos) */}
+            <div style={{
+              position: 'absolute', top: 80, right: 100,
+              textAlign: 'right', opacity: invarT,
+            }}>
+              <div style={{
+                fontFamily: FONTS.mono, fontSize: 18, color: COLORS.chalkDim,
+                letterSpacing: '0.4em', textTransform: 'uppercase',
+              }}>PHYSICS · THE INVARIANT</div>
+              <div style={{
+                fontFamily: FONTS.serifEn, fontStyle: 'italic', fontSize: 28,
+                color: COLORS.chalkDim, marginTop: 14, letterSpacing: '0.06em',
+              }}>我爱物理 · 不变量</div>
+            </div>
+
+            {/* Center: 我爱物理 */}
+            <div style={{
+              position: 'absolute', left: 960, top: 540,
+              transform: 'translate(-50%, -50%)',
+              textAlign: 'center', opacity: loveT,
+            }}>
+              <div style={{
+                fontFamily: FONTS.serifEn, fontStyle: 'italic',
+                fontSize: 30, color: COLORS.chalkDim,
+                letterSpacing: '0.06em',
+                marginBottom: 28,
+              }}>and yes —</div>
+              <div style={{
+                fontFamily: FONTS.serifCn, fontSize: 130, color: COLORS.chalk,
+                letterSpacing: '0.22em', fontWeight: 500,
+                textShadow: '0 0 40px rgba(244,238,222,0.30)',
+                whiteSpace: 'nowrap',
+              }}>我 爱 物 理</div>
+            </div>
+
+            {/* Sub-tagline (entropy line) */}
+            <div style={{
+              position: 'absolute', left: 960, top: 770,
+              transform: 'translateX(-50%)',
+              fontFamily: FONTS.serifEn, fontStyle: 'italic', fontSize: 24,
+              color: COLORS.chalkDim, letterSpacing: '0.06em',
+              opacity: subT,
+              whiteSpace: 'nowrap',
+            }}>entropy increases · but some things stay entangled</div>
+
+            {/* Producer credit (with inline Enkira logo to the right of ENKIRA.AI) */}
+            <div style={{
+              position: 'absolute', left: 960, bottom: 70,
+              transform: 'translateX(-50%)',
+              textAlign: 'center',
+              opacity: creditT,
+            }}>
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 16,
+                fontFamily: FONTS.mono, fontSize: 16, color: COLORS.chalkDim,
+                letterSpacing: '0.32em',
+              }}>
+                <span>PRODUCED BY · 文博 · ENKIRA.AI</span>
+                <img src="logos/enkira.png" alt="Enkira.ai"
+                  style={{
+                    height: 38, width: 'auto', display: 'block',
+                    opacity: 0.9,
+                    mixBlendMode: 'lighten',
+                    filter: 'brightness(1.05)',
+                  }}/>
+              </div>
+              <div style={{
+                fontFamily: FONTS.mono, fontSize: 13, color: COLORS.chalkDim,
+                letterSpacing: '0.28em', marginTop: 10,
+                opacity: 0.75,
+              }}>NEW YORK · 2026</div>
+            </div>
+
+            <PersistentEntropyChalkFull/>
+          </div>
+        );
+      }}
+    </Sprite>
+  );
+}
+
+// ── Expose to window ────────────────────────────────────────────────────────
+Object.assign(window, {
+  TF, CF, flattenBlock,
+  SceneTitleFull,
+  SceneVideoBoWen1,
+  SceneTransitionUnlock,
+  SceneVideoChenGongyu,
+  SceneBlock1Unlock,
+  SceneVideoLiChengdong,
+  SceneBlock2Memories,
+  SceneVideoYuWanqing,
+  SceneTransUnreserved,
+  SceneBlock3Mountains,
+  SceneVideoZhangWang,
+  SceneBlock4Roots,
+  SceneVideoGuoXing,
+  SceneTransSeparate,
+  SceneBlock5Evolution,
+  SceneTransConverge,
+  SceneVideoHuangZhangCheng,
+  SceneOutroFinal,
+});

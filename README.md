@@ -70,6 +70,25 @@ Ping-pong chat protocol for two AI agents (Claude Code, Codex, Gemini CLI, or an
 
 **Discussion only:** the skill enforces a "wait for human review" rule after the transcript is generated. Neither agent may act on the discussion until the human explicitly approves.
 
+### narrative-video-production
+
+End-to-end playbook for producing a multi-segment narrative video — slideshow with theme, year-in-review, project retrospective, family/wedding/birthday montage with arc, course summary, documentary opener, conference recap, memorial, anniversary, organizational milestone reel. Eight phases from raw material intake through final compressed mp4.
+
+**Pipeline:**
+- A · Material intake — inventory, capture user intent (theme, anchor, motif)
+- B · Photo pipeline — parallel Haiku subagents for tagging, Finder-based curation, hash-link provenance
+- C · Video pipeline — ffmpeg normalize + Deepgram STT (`nova-2 + zh-CN` for Mandarin)
+- D · Storyboard design — 3-act spine, named-state formulas, motif weaving
+- E · Composition — custom React/Babel-standalone Stage + Sprite framework (NOT Remotion)
+- F · BGM generation — Suno/MiniMax for instrumental beds, optional heartlib vocals on RunPod A40
+- G · Post-mix — screen-record + ffmpeg/iMovie final assembly with selective ducking
+- H · Compress — H.264 CRF 23 + faststart, ~100-150 MB for 6-7 min @ 1080p
+
+**Bundled assets:**
+- `serve.py` — robust local HTTP server (swallows BrokenPipeError mid-recording)
+- `photos_data_gen.py` — auto-generate JS constants from filesystem
+- Working templates: `animations.jsx`, `primitives.jsx`, `scenes.jsx`, `mux_recorded.sh`, `progress.md`
+
 ## Shared infrastructure secrets
 
 The three `enkira-*` infra plugins read from a dedicated Infisical project called **`shared-infra`** (workspace `d231f36b-1287-4d5b-a122-123f239b6131`). It holds org-wide values (Cloudflare token, Azure subscription + Service Principal) so individual repos don't each keep their own copy.

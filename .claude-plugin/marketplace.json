@@ -141,6 +141,17 @@
       },
       "category": "development",
       "keywords": ["rfc", "implementation", "subagent", "tdd", "epic", "pr", "github", "review", "codex", "gemini", "project-management"]
+    },
+    {
+      "name": "narrative-video-production",
+      "source": "./plugins/narrative-video-production",
+      "description": "End-to-end playbook for producing a multi-segment narrative video that mixes photos, embedded videos, BGM, and on-screen text — assembled in a custom in-browser composition (HTML + React/Babel-standalone), captured via screen recording, and finished with ffmpeg. Covers tributes, anniversaries, year-in-reviews, project retrospectives, slideshows with theme, conference recaps, and similar mixed-media story videos.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Bo Wen"
+      },
+      "category": "creative",
+      "keywords": ["video", "slideshow", "tribute", "anniversary", "memorial", "year-in-review", "montage", "ffmpeg", "deepgram", "suno", "heartlib", "remotion-alternative", "narrative", "story-video"]
     }
   ]
 }

@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# Mix a Mac screen-recording (.mov, no system audio needed) of reunion_full.html
+# with:
+#   • BGM track (bgm/bgm.mp3, 6:48) — bed1 no duck, bed2/bed3 duck under talking heads
+#   • 7 talking-head speech audio tracks, extracted from project/videos/*.mp4
+#     at their TF (timeline) offsets
+#
+# Usage:
+#   bash mux_recorded.sh path/to/recording.mov [--video-offset 3.5] \
+#                                              [--bgm-vol 0.55] \
+#                                              [--duck-vol 0.22] \
+#                                              [--speech-vol 1.0] \
+#                                              [--out reunion_final.mp4]
+#
+# --video-offset N    Skip first N seconds of the .mov (lead-in before play).
+#                     Default 0. Use Cmd+Shift+5's built-in trim, or pass this.
+# --bgm-vol           Default BGM level. 0.55 default.
+# --duck-vol          BGM level under talking heads (bed2/bed3 only). 0.22 default.
+# --speech-vol        Volume multiplier for talking-head speech. 1.0 default.
+# --out               Output mp4 name. Default reunion_final.mp4.
+
+set -euo pipefail
+
+if [[ $# -lt 1 ]]; then
+  echo "Usage: bash mux_recorded.sh <recording.mov> [opts]"; exit 1
+fi
+
+MOV="$1"; shift
+VOFF=0
+BGM_VOL=0.55
+DUCK_VOL=0.22
+SPEECH_VOL=1.0
+OUT="reunion_final.mp4"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --video-offset) VOFF="$2"; shift 2;;
+    --bgm-vol)      BGM_VOL="$2"; shift 2;;
+    --duck-vol)     DUCK_VOL="$2"; shift 2;;
+    --speech-vol)   SPEECH_VOL="$2"; shift 2;;
+    --out)          OUT="$2"; shift 2;;
+    *) echo "Unknown arg: $1"; exit 1;;
+  esac
+done
+
+[[ -f "$MOV" ]] || { echo "Missing recording: $MOV"; exit 1; }
+NJU="/Users/bwen/Downloads/nju"
+BGM="$NJU/bgm/bgm.mp3"
+[[ -f "$BGM" ]] || { echo "Missing BGM: $BGM"; exit 1; }
+
+# ── Timeline anchors (mirror scenes_full.jsx TF) ───────────────────────────
+TOTAL=408.5
+
+# Talking-head segments: start_s, end_s, source video (under project/videos/)
+# Order matches the scenes_full.jsx storyboard.
+SCENES=(
+  "2.50  12.42  2026nju-bo-wen-1.mp4"
+  "17.42 89.29  陈公羽二班021122005.mp4"
+  "103.29 118.67 李成栋.mp4"
+  "133.67 161.27 于婉卿_final.mp4"
+  "192.77 231.49 张智建5班_汪晨璐2班.mp4"
+  "246.49 294.70 郭晓宇邢星_毕业二十年祝福_260501.mp4"
+  "334.20 363.51 1班-黄张成.mp4"
+)
+
+# Talking heads that fall in bed2/bed3 territory (≥ ~2:42 = bed1→bed2 crossfade).
+# These are the ONLY ranges where BGM ducks. Bed1's talking heads (bo-wen-1,
+# 陈公羽, 李成栋, 于婉卿) keep BGM at full default vol per user direction.
+DUCK_RANGES=(
+  "192.77 231.49"   # 张智建+汪晨璐 (under bed2)
+  "246.49 294.70"   # 郭晓宇+邢星  (bed2 → bed3)
+  "334.20 363.51"   # 黄张成        (under bed3)
+)
+
+# ── Build BGM with ducking ─────────────────────────────────────────────────
+# Use volume filter with smooth envelope. For each duck range [a,b]:
+#   ramp 0.5s into duck, hold at DUCK_VOL, ramp 0.5s out.
+# Default outside duck ranges is BGM_VOL.
+# Use ffmpeg's `volume` filter with time-evaluated expression.
+
+RAMP=0.5
+DUCK_EXPR=""
+for r in "${DUCK_RANGES[@]}"; do
+  read -r A B <<< "$r"
+  # Smooth ramp: 1 inside duck, 0 outside, with linear ramp at boundaries.
+  # ramp_in:  clip((t - (A-RAMP)) / RAMP, 0, 1)  for t in [A-RAMP, A]
+  # full:     1 for t in [A, B]
+  # ramp_out: 1 - clip((t - (B)) / RAMP, 0, 1)   for t in [B, B+RAMP]
+  # Combine: clip((t-(A-RAMP))/RAMP, 0, 1) - clip((t-B)/RAMP, 0, 1)
+  PIECE="(clip((t-(${A}-${RAMP}))/${RAMP},0,1) - clip((t-${B})/${RAMP},0,1))"
+  if [[ -z "$DUCK_EXPR" ]]; then
+    DUCK_EXPR="$PIECE"
+  else
+    DUCK_EXPR="$DUCK_EXPR + $PIECE"
+  fi
+done
+# Final BGM vol: BGM_VOL - (BGM_VOL - DUCK_VOL) * duck_amount
+BGM_VOL_EXPR="${BGM_VOL} - (${BGM_VOL} - ${DUCK_VOL})*(${DUCK_EXPR})"
+
+echo "──────────────────────────────────────────────"
+echo "Recording:    $MOV (offset ${VOFF}s)"
+echo "BGM:          $BGM"
+echo "BGM vol:      $BGM_VOL  (duck → $DUCK_VOL during bed2/bed3 talking heads)"
+echo "Speech vol:   $SPEECH_VOL"
+echo "Output:       $NJU/$OUT"
+echo "Total:        ${TOTAL}s"
+echo "──────────────────────────────────────────────"
+
+# ── Build ffmpeg command ───────────────────────────────────────────────────
+# Inputs:  0=video (mov), 1=BGM, 2..=speech sources
+INPUTS=( -ss "$VOFF" -i "$MOV" -i "$BGM" )
+FILTER="[1:a]volume='${BGM_VOL_EXPR}':eval=frame[bgm];"
+MIX_LABELS=( "[bgm]" )
+
+i=2
+for s in "${SCENES[@]}"; do
+  read -r START END FNAME <<< "$s"
+  src="$NJU/project/videos/$FNAME"
+  [[ -f "$src" ]] || { echo "Missing source: $src"; exit 1; }
+  dur=$(awk "BEGIN { printf \"%.3f\", $END - $START }")
+  delay_ms=$(awk "BEGIN { printf \"%d\", $START * 1000 }")
+  INPUTS+=( -i "$src" )
+  FILTER+="[${i}:a]aresample=48000,aformat=channel_layouts=stereo,atrim=0:${dur},asetpts=PTS-STARTPTS,adelay=${delay_ms}|${delay_ms},volume=${SPEECH_VOL}[s${i}];"
+  MIX_LABELS+=( "[s${i}]" )
+  printf "  speech %-2d  %7.2fs (%5.2fs)  ← %s\n" "$((i-1))" "$START" "$dur" "$FNAME"
+  i=$((i+1))
+done
+
+FILTER+="$(IFS=; echo "${MIX_LABELS[*]}")amix=inputs=${#MIX_LABELS[@]}:duration=longest:dropout_transition=0:normalize=0[aout]"
+
+echo "──────────────────────────────────────────────"
+echo "Running ffmpeg…"
+
+ffmpeg -y "${INPUTS[@]}" \
+  -filter_complex "$FILTER" \
+  -map 0:v -map "[aout]" \
+  -t "$TOTAL" \
+  -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p \
+  -c:a aac -b:a 192k \
+  -movflags +faststart \
+  "$NJU/$OUT"
+
+echo
+echo "✓ Done: $NJU/$OUT"
+ls -lh "$NJU/$OUT"

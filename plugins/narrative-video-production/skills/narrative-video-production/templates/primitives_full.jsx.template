@@ -1,0 +1,663 @@
+// scenes/primitives_full.jsx
+// Extra visual primitives for the FULL reunion video (~6:08).
+// Loaded after primitives.jsx — depends on COLORS, FONTS, useSprite, useTimeline.
+
+// ── Block title: main CN + italic sub + small mono EN, top-left corner ──────
+function BlockTitle({
+  cn, sub, en,
+  x = 80, y = 60,
+  fadeInDur = 0.5,
+  fadeOutDur = 0.4,
+}) {
+  const { localTime, duration } = useSprite();
+  const exitStart = Math.max(0, duration - fadeOutDur);
+  let opacity = 1;
+  if (localTime < fadeInDur) opacity = clamp(localTime / fadeInDur, 0, 1);
+  else if (localTime > exitStart) opacity = 1 - clamp((localTime - exitStart) / fadeOutDur, 0, 1);
+
+  return (
+    <div style={{ position: 'absolute', left: x, top: y, opacity, willChange: 'opacity' }}>
+      {en && (
+        <div style={{
+          fontFamily: FONTS.mono, fontSize: 16, color: COLORS.chalkDim,
+          letterSpacing: '0.32em', textTransform: 'uppercase',
+        }}>{en}</div>
+      )}
+      <div style={{
+        fontFamily: FONTS.serifCn, fontSize: 48, color: COLORS.chalk,
+        letterSpacing: '0.14em', marginTop: 10, fontWeight: 500,
+        textShadow: '0 0 24px rgba(244,238,222,0.15)',
+        whiteSpace: 'nowrap',
+      }}>{cn}</div>
+      {sub && (
+        <div style={{
+          fontFamily: FONTS.serifEn, fontStyle: 'italic', fontSize: 24,
+          color: COLORS.chalkDim, marginTop: 8, letterSpacing: '0.04em',
+          whiteSpace: 'nowrap',
+        }}>{sub}</div>
+      )}
+    </div>
+  );
+}
+
+// ── Location badge: brief 0.5-1s overlay on a corner of a photo ─────────────
+function LocationBadge({ text, corner = 'top-right', visibleFrom = 0, visibleTo = 1 }) {
+  const { localTime } = useSprite();
+  if (localTime < visibleFrom || localTime > visibleTo) return null;
+  const t = localTime - visibleFrom;
+  const dur = visibleTo - visibleFrom;
+  const fadeIn = clamp(t / 0.25, 0, 1);
+  const fadeOut = 1 - clamp((t - (dur - 0.25)) / 0.25, 0, 1);
+  const opacity = fadeIn * fadeOut;
+
+  const cornerStyles = {
+    'top-right':   { right: 80,  top: 80 },
+    'top-left':    { left: 80,   top: 80 },
+    'bot-right':   { right: 80,  bottom: 80 },
+    'bot-left':    { left: 80,   bottom: 80 },
+  };
+
+  return (
+    <div style={{
+      position: 'absolute', ...cornerStyles[corner],
+      opacity,
+      fontFamily: FONTS.mono, fontSize: 20, color: COLORS.chalk,
+      letterSpacing: '0.4em', textTransform: 'uppercase',
+      padding: '8px 14px',
+      borderTop: `1px solid ${COLORS.chalkDim}`,
+      borderBottom: `1px solid ${COLORS.chalkDim}`,
+      backdropFilter: 'blur(6px)',
+      background: 'rgba(0,0,0,0.18)',
+    }}>
+      {text}
+    </div>
+  );
+}
+
+// ── Transition card: large CN idiom + chalk formula + small mono EN ─────────
+// Used for Block 3 (不约而同 / δS=0) and Block 5 (殊途同归 / Σpaths e^iS/ℏ).
+// Optional `footnote`: small italic note below the EN line, for explaining
+// what variables in the formula mean (e.g. "S = 作用量 · action").
+function TransitionCard({ zh, formula, formulaJsx, en, footnote }) {
+  const { localTime, duration } = useSprite();
+  const fadeOutStart = Math.max(0, duration - 0.4);
+
+  // Card opacity envelope
+  const cardOpacity =
+    localTime < 0.4
+      ? Easing.easeOutCubic(clamp(localTime / 0.4, 0, 1))
+      : localTime > fadeOutStart
+        ? 1 - Easing.easeInCubic(clamp((localTime - fadeOutStart) / 0.4, 0, 1))
+        : 1;
+
+  // Idiom (zh) — fade up
+  const zhT = clamp(localTime / 0.5, 0, 1);
+  const zhEase = Easing.easeOutCubic(zhT);
+
+  // Formula reveal (clip-path)
+  const formulaT = clamp((localTime - 0.45) / 0.55, 0, 1);
+  const formulaReveal = Easing.easeOutCubic(formulaT) * 100;
+
+  // EN small — fade in last
+  const enT = clamp((localTime - 0.85) / 0.4, 0, 1);
+
+  return (
+    <div style={{
+      position: 'absolute', inset: 0,
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center', gap: 36,
+      opacity: cardOpacity,
+    }}>
+      <ChalkboardBg opacity={0.06}/>
+      {/* zh idiom */}
+      <div style={{
+        fontFamily: FONTS.serifCn, fontSize: 140, color: COLORS.chalk,
+        letterSpacing: '0.20em', fontWeight: 500,
+        textShadow: '0 0 30px rgba(244,238,222,0.20)',
+        opacity: zhEase,
+        transform: `translateY(${(1 - zhEase) * 14}px)`,
+        whiteSpace: 'nowrap',
+      }}>{zh}</div>
+
+      {/* divider */}
+      <div style={{
+        width: 240, height: 1, background: COLORS.chalkDim,
+        opacity: zhEase * 0.55,
+      }}/>
+
+      {/* formula */}
+      <div style={{
+        fontFamily: FONTS.serifEn, fontStyle: 'italic',
+        fontSize: 80, color: COLORS.chalk,
+        letterSpacing: '0.04em',
+        textShadow: '0 0 24px rgba(244,238,222,0.20)',
+        whiteSpace: 'nowrap',
+      }}>
+        <span style={{
+          display: 'inline-block',
+          clipPath: `inset(0 ${100 - formulaReveal}% 0 0)`,
+          WebkitClipPath: `inset(0 ${100 - formulaReveal}% 0 0)`,
+        }}>{formulaJsx || formula}</span>
+      </div>
+
+      {/* en */}
+      <div style={{
+        fontFamily: FONTS.mono, fontSize: 22, color: COLORS.chalkDim,
+        letterSpacing: '0.5em', textTransform: 'uppercase',
+        opacity: enT * 0.85,
+      }}>{en}</div>
+
+      {/* optional footnote (variable-explanation tooltip) */}
+      {footnote && (
+        <div style={{
+          fontFamily: FONTS.serifEn, fontStyle: 'italic',
+          fontSize: 22, color: COLORS.chalkDim,
+          letterSpacing: '0.04em',
+          opacity: enT * 0.7,
+          marginTop: 6,
+        }}>{footnote}</div>
+      )}
+    </div>
+  );
+}
+
+// ── PhotoBlock: sequential photos with custom dwell + crossfade + Ken Burns ─
+// Each photo in `photos` is { src, dwell, kenBurns?, caption?, locBadge? }.
+// Dwells should sum approximately to the parent Sprite duration.
+// Crossfade between adjacent photos for smooth transitions.
+function PhotoBlock({
+  photos,
+  fadeOverlap = 0.18,
+  fillMode = 'contain',  // 'contain' or 'cover'
+  bgColor = COLORS.bg,
+  showCaptions = false,
+  globalFadeIn = 0.4,
+  globalFadeOut = 0.4,
+}) {
+  const { localTime, duration } = useSprite();
+
+  // Global fade envelope for crossfade between scenes
+  let globalOpacity = 1;
+  if (localTime < globalFadeIn) {
+    globalOpacity = clamp(localTime / globalFadeIn, 0, 1);
+  } else if (localTime > duration - globalFadeOut) {
+    globalOpacity = 1 - clamp((localTime - (duration - globalFadeOut)) / globalFadeOut, 0, 1);
+  }
+
+  // Compute time slots — based on logical photo block duration
+  // (which is duration minus the trailing crossfade tail)
+  const photoDur = Math.max(0.01, duration - globalFadeOut);
+  const totalDwell = photos.reduce((s, p) => s + (p.dwell || 1), 0);
+  const scale = totalDwell > 0 ? photoDur / totalDwell : 1;
+  let cum = 0;
+  const slots = photos.map(p => {
+    const start = cum * scale;
+    cum += (p.dwell || 1);
+    const end = cum * scale;
+    return { ...p, start, end, len: end - start };
+  });
+
+  return (
+    <div style={{ position: 'absolute', inset: 0, background: bgColor, opacity: globalOpacity, willChange: 'opacity' }}>
+      {slots.map((s, i) => {
+        const tEarly = s.start - fadeOverlap;
+        const tLate = s.end + fadeOverlap;
+        if (localTime < tEarly || localTime > tLate) return null;
+
+        const tIn = localTime - s.start;
+        const overlapIn = Math.min(fadeOverlap, s.len * 0.5);
+        const overlapOut = Math.min(fadeOverlap, s.len * 0.5);
+
+        let opacity = 1;
+        if (tIn < overlapIn) opacity = clamp(tIn / overlapIn, 0, 1);
+        else if (tIn > s.len - overlapOut) opacity = clamp((s.len - tIn) / overlapOut, 0, 1);
+
+        // Ken Burns
+        let imgScale = 1;
+        const kbT = clamp(tIn / s.len, 0, 1);
+        if (s.kenBurns === 'in')      imgScale = 1 + 0.05 * kbT;
+        else if (s.kenBurns === 'out') imgScale = 1.05 - 0.05 * kbT;
+        else if (s.kenBurns === 'flicker') imgScale = 1; // no kb for fast flickers
+
+        return (
+          <div key={i} style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            opacity,
+            willChange: 'opacity',
+          }}>
+            <img
+              src={s.src}
+              alt=""
+              style={{
+                maxWidth: fillMode === 'cover' ? '100%' : '85%',
+                maxHeight: fillMode === 'cover' ? '100%' : '78%',
+                width: fillMode === 'cover' ? '100%' : 'auto',
+                height: fillMode === 'cover' ? '100%' : 'auto',
+                objectFit: fillMode,
+                transform: `scale(${imgScale})`,
+                filter: 'sepia(0.10) saturate(0.95) contrast(1.02) brightness(0.97)',
+                boxShadow: fillMode === 'contain' ? '0 30px 60px -10px rgba(0,0,0,0.7)' : 'none',
+                willChange: 'transform',
+              }}
+            />
+            {/* optional location badge — drawn during 0.3s window mid-display */}
+            {s.locBadge && (
+              <LocationBadge
+                text={s.locBadge}
+                corner="top-right"
+                visibleFrom={s.len * 0.15}
+                visibleTo={Math.min(s.len * 0.6, s.len * 0.15 + 1.0)}
+              />
+            )}
+            {showCaptions && s.caption && (
+              <div style={{
+                position: 'absolute', left: 80, bottom: 80,
+                fontFamily: FONTS.serifCn, fontSize: 26,
+                color: COLORS.chalk, letterSpacing: '0.08em',
+                background: 'rgba(0,0,0,0.4)', padding: '8px 16px',
+              }}>{s.caption}</div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── VideoClip: HTML5 <video> synced to Stage timeline ───────────────────────
+// Place inside a Sprite — uses sprite localTime as the seek target.
+function VideoClip({
+  src,
+  width = 1920, height = 1080,
+  x = 0, y = 0,
+  fillMode = 'contain',
+  muted = false,
+}) {
+  const { localTime, duration, visible } = useSprite();
+  const { playing } = useTimeline();
+  const videoRef = React.useRef(null);
+  const lastSyncRef = React.useRef(0);
+
+  // Initial seek + play/pause
+  React.useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (visible && playing) {
+      v.play().catch(() => {});
+    } else {
+      v.pause();
+    }
+  }, [visible, playing]);
+
+  // Drift correction: only re-seek if drift > threshold (avoid per-frame seeks)
+  React.useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const target = localTime;
+    const drift = Math.abs(v.currentTime - target);
+    // Only sync if drift is large (manual scrub) or initial load
+    if (drift > 0.5) {
+      v.currentTime = target;
+      lastSyncRef.current = target;
+    }
+  });
+
+  return (
+    <div style={{
+      position: 'absolute', left: x, top: y, width, height,
+      background: '#000', overflow: 'hidden',
+    }}>
+      <video
+        ref={videoRef}
+        src={src}
+        playsInline
+        preload="auto"
+        muted={muted}
+        style={{
+          width: '100%', height: '100%',
+          objectFit: fillMode,
+          display: 'block',
+        }}
+      />
+    </div>
+  );
+}
+
+// ── Ghost paths for Block 5 (path integral) ─────────────────────────────────
+// Cities scattered across canvas with bezier paths from origin (NJU 2006).
+// Main path (NYC) is solid white; others are dashed translucent.
+// `phase`: 0 = origin only, 0-0.7 = paths grow outward, 0.7-1 = converge to 2026.
+const GHOST_CITIES = [
+  // type: 'main' | 'us-west' | 'us-south' | 'us-east' | 'asia' | 'europe' | 'china'
+  { name: 'NYC',           x: 1640, y: 540, type: 'main',     stagger: 0.0 },
+  { name: 'Seattle',       x: 220,  y: 220, type: 'us-west',  stagger: 0.10 },
+  { name: 'Portland',      x: 280,  y: 320, type: 'us-west',  stagger: 0.16 },
+  { name: 'San Francisco', x: 180,  y: 480, type: 'us-west',  stagger: 0.22 },
+  { name: 'Phoenix',       x: 320,  y: 720, type: 'us-south', stagger: 0.28 },
+  { name: 'Houston',       x: 480,  y: 820, type: 'us-south', stagger: 0.34 },
+  { name: 'Boston',        x: 1680, y: 220, type: 'us-east',  stagger: 0.40 },
+  { name: 'DC',            x: 1700, y: 760, type: 'us-east',  stagger: 0.46 },
+  { name: 'Tokyo',         x: 1780, y: 380, type: 'asia',     stagger: 0.52 },
+  { name: 'Paris',         x: 100,  y: 380, type: 'europe',   stagger: 0.58 },
+  { name: '北京',          x: 720,  y: 880, type: 'china',    stagger: 0.64 },
+  { name: '上海',          x: 920,  y: 940, type: 'china',    stagger: 0.70 },
+  { name: '南京',          x: 1100, y: 880, type: 'china',    stagger: 0.76 },
+  { name: '广州',          x: 1280, y: 940, type: 'china',    stagger: 0.82 },
+  { name: '深圳',          x: 1440, y: 880, type: 'china',    stagger: 0.88 },
+];
+const GHOST_ORIGIN = { x: 280, y: 540 };  // NJU 2006 left side
+const REUNION_NODE = { x: 1640, y: 540 }; // 2026 right side
+
+function GhostPaths({ phase = 0, showOrigin = true, showReunion = true }) {
+  // phase: [0, 1]
+  //   0.00 - 0.40: paths grow outward
+  //   0.40 - 0.75: paths fully fanned, ghost cities visible
+  //   0.75 - 1.00: paths converge to REUNION_NODE
+  return (
+    <svg
+      style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
+      width="1920" height="1080"
+      viewBox="0 0 1920 1080"
+    >
+      <defs>
+        <radialGradient id="ghost_dot">
+          <stop offset="0%" stopColor={COLORS.chalk} stopOpacity="0.85"/>
+          <stop offset="100%" stopColor={COLORS.chalk} stopOpacity="0"/>
+        </radialGradient>
+        <radialGradient id="ghost_dot_dim">
+          <stop offset="0%" stopColor={COLORS.chalkDim} stopOpacity="0.5"/>
+          <stop offset="100%" stopColor={COLORS.chalkDim} stopOpacity="0"/>
+        </radialGradient>
+      </defs>
+
+      {GHOST_CITIES.map((c, i) => {
+        // Grow phase: t = clamp((phase - stagger) / 0.30, 0, 1)
+        const growT = clamp((phase - c.stagger) / 0.30, 0, 1);
+        const grow = Easing.easeOutCubic(growT);
+
+        // Converge phase: t = clamp((phase - 0.75) / 0.20, 0, 1)
+        const collapseT = clamp((phase - 0.75) / 0.20, 0, 1);
+        const collapse = Easing.easeInOutCubic(collapseT);
+
+        // Endpoint lerp: from city → REUNION_NODE during collapse
+        const endX = c.x + (REUNION_NODE.x - c.x) * collapse * (c.type === 'main' ? 0 : 1);
+        const endY = c.y + (REUNION_NODE.y - c.y) * collapse * (c.type === 'main' ? 0 : 1);
+
+        // Apply grow on the partial endpoint
+        const px = GHOST_ORIGIN.x + (endX - GHOST_ORIGIN.x) * grow;
+        const py = GHOST_ORIGIN.y + (endY - GHOST_ORIGIN.y) * grow;
+
+        // Bezier control points (arch the curves)
+        const dx = px - GHOST_ORIGIN.x;
+        const dy = py - GHOST_ORIGIN.y;
+        const archMag = Math.min(180, Math.hypot(dx, dy) * 0.25);
+        const archDir = (i % 2 === 0 ? 1 : -1) * (py < GHOST_ORIGIN.y ? -1 : 1);
+        const cx = (GHOST_ORIGIN.x + px) / 2 + (dy / Math.max(1, Math.hypot(dx, dy))) * archMag * archDir;
+        const cy = (GHOST_ORIGIN.y + py) / 2 - (dx / Math.max(1, Math.hypot(dx, dy))) * archMag * archDir;
+
+        const isMain = c.type === 'main';
+        const baseAlpha = isMain ? 0.95 : 0.22;
+        const labelAlpha = isMain ? 1.0 : (1 - collapse * 0.6) * 0.55;
+
+        return (
+          <g key={c.name} opacity={grow}>
+            <path
+              d={`M ${GHOST_ORIGIN.x} ${GHOST_ORIGIN.y} Q ${cx} ${cy} ${px} ${py}`}
+              stroke={isMain ? COLORS.chalk : COLORS.chalkDim}
+              strokeWidth={isMain ? 2.5 : 1.2}
+              fill="none"
+              opacity={baseAlpha}
+              strokeDasharray={isMain ? "none" : "5 8"}
+              strokeLinecap="round"
+            />
+            {/* endpoint dot */}
+            <circle cx={px} cy={py} r={isMain ? 18 : 9} fill={`url(#${isMain ? 'ghost_dot' : 'ghost_dot_dim'})`}/>
+            <circle cx={px} cy={py} r={isMain ? 4 : 2.5} fill={isMain ? COLORS.chalk : COLORS.chalkDim} opacity={baseAlpha * 1.2}/>
+            {/* city label */}
+            <text
+              x={px}
+              y={py - (isMain ? 22 : 14)}
+              textAnchor="middle"
+              fill={COLORS.chalk}
+              fontSize={isMain ? 26 : 18}
+              fontFamily={FONTS.mono}
+              letterSpacing="0.08em"
+              opacity={labelAlpha}
+              fontWeight={isMain ? 600 : 400}
+            >{c.name}</text>
+          </g>
+        );
+      })}
+
+      {/* Origin label (NJU 2006) */}
+      {showOrigin && (
+        <g opacity={Math.min(1, phase * 5)}>
+          <circle cx={GHOST_ORIGIN.x} cy={GHOST_ORIGIN.y} r={22} fill="url(#ghost_dot)"/>
+          <circle cx={GHOST_ORIGIN.x} cy={GHOST_ORIGIN.y} r={5} fill={COLORS.chalk}/>
+          <text
+            x={GHOST_ORIGIN.x}
+            y={GHOST_ORIGIN.y + 44}
+            textAnchor="middle"
+            fill={COLORS.chalk}
+            fontSize={20}
+            fontFamily={FONTS.mono}
+            letterSpacing="0.12em"
+          >NJU · 2006</text>
+        </g>
+      )}
+
+      {/* Optional question marks for unknown classmates */}
+      {phase > 0.5 && (
+        <g opacity={(phase - 0.5) * 1.5 * (1 - Math.max(0, (phase - 0.85) * 6))}>
+          <text x={550} y={150} fill={COLORS.chalkDim} fontSize={28}
+            fontFamily={FONTS.mono} fontStyle="italic" opacity={0.5}>···</text>
+          <text x={1450} y={150} fill={COLORS.chalkDim} fontSize={28}
+            fontFamily={FONTS.mono} fontStyle="italic" opacity={0.5}>···</text>
+          <text x={960} y={750} textAnchor="middle"
+            fill={COLORS.chalkDim} fontSize={20}
+            fontFamily={FONTS.serifEn} fontStyle="italic" opacity={0.45}>(unobserved eigenstates)</text>
+        </g>
+      )}
+    </svg>
+  );
+}
+
+// ── Ghost photo layer for Block 5 ───────────────────────────────────────────
+// Shows ~16 small alumni photos as semi-transparent floaters that drift in,
+// hold briefly, drift out — staggered across the block's lifetime.
+// Layout: 17 hand-tuned positions around the canvas edge, avoiding the
+// central evo-timeline corridor (x: 360-1500, y: 280-820).
+const GHOST_PHOTO_POSITIONS = [
+  // Top row (5)
+  { x: 80,   y: 100, rot: -3.0, w: 170 },
+  { x: 280,  y: 80,  rot: 1.5,  w: 170 },
+  { x: 1280, y: 90,  rot: 2.5,  w: 170 },
+  { x: 1480, y: 110, rot: -1.5, w: 170 },
+  { x: 1680, y: 130, rot: 0.5,  w: 160 },
+  // Right column (3)
+  { x: 1700, y: 300, rot: 1.0,  w: 160 },
+  { x: 1720, y: 480, rot: -2.5, w: 170 },
+  { x: 1700, y: 660, rot: 2.0,  w: 170 },
+  // Bottom row (5)
+  { x: 80,   y: 880, rot: 1.5,  w: 170 },
+  { x: 280,  y: 900, rot: -1.0, w: 170 },
+  { x: 1240, y: 880, rot: 2.5,  w: 170 },
+  { x: 1480, y: 870, rot: -1.5, w: 170 },
+  { x: 1680, y: 890, rot: 1.0,  w: 170 },
+  // Left column (3)
+  { x: 60,   y: 280, rot: -1.0, w: 160 },
+  { x: 80,   y: 460, rot: 2.0,  w: 170 },
+  { x: 80,   y: 660, rot: -2.5, w: 170 },
+  { x: 80,   y: 200, rot: 1.5,  w: 160 },
+];
+
+function GhostPhotoLayer({
+  photos,                   // array of src strings
+  windowStart = 1.5,        // when first photo enters
+  windowEnd = 25.0,         // when last photo finishes drifting out
+  holdDur = 4.0,            // how long each photo stays before fading
+  fadeDur = 0.6,
+  positions = GHOST_PHOTO_POSITIONS,
+  baseOpacity = 0.55,
+}) {
+  const { localTime } = useSprite();
+  if (!photos || photos.length === 0) return null;
+  const span = Math.max(0.5, windowEnd - windowStart - holdDur);
+  const stagger = span / Math.max(1, photos.length - 1);
+
+  return (
+    <>
+      {photos.map((src, i) => {
+        const pos = positions[i % positions.length];
+        const enter = windowStart + i * stagger;
+        const t = localTime - enter;
+        if (t < -fadeDur || t > holdDur + fadeDur) return null;
+
+        let opacity = baseOpacity;
+        if (t < 0) opacity *= clamp(1 + t / fadeDur, 0, 1);
+        else if (t > holdDur) opacity *= 1 - clamp((t - holdDur) / fadeDur, 0, 1);
+
+        // tiny drift over hold
+        const driftT = clamp(t / holdDur, 0, 1);
+        const driftY = (driftT - 0.5) * 8;
+
+        return (
+          <div key={i} style={{
+            position: 'absolute',
+            left: pos.x, top: pos.y + driftY,
+            width: pos.w, height: 'auto',
+            transform: `rotate(${pos.rot}deg)`,
+            opacity,
+            pointerEvents: 'none',
+            willChange: 'opacity, transform',
+            zIndex: 2,
+          }}>
+            <div style={{
+              padding: 6,
+              background: COLORS.paper,
+              boxShadow: '0 12px 24px -8px rgba(0,0,0,0.6), 0 4px 8px -4px rgba(0,0,0,0.4)',
+            }}>
+              <img src={src} alt="" style={{
+                width: '100%', height: 'auto',
+                display: 'block',
+                aspectRatio: '4 / 3',
+                objectFit: 'cover',
+                filter: 'sepia(0.20) saturate(0.80) brightness(0.92)',
+              }}/>
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+// ── Background BGM: HTML5 <audio> synced to Stage timeline ─────────────────
+// Place once at the top of the Composition (inside <Stage>). Plays the entire
+// soundtrack synced to Stage.time. Browser autoplay rules require an initial
+// user gesture (clicking play in the Stage bar counts).
+function BackgroundBGM({ src, volume = 0.55 }) {
+  const audioRef = React.useRef(null);
+  const { time, playing } = useTimeline();
+
+  React.useEffect(() => {
+    const a = audioRef.current;
+    if (a) a.volume = volume;
+  }, [volume]);
+
+  React.useEffect(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (playing) a.play().catch(() => {});
+    else a.pause();
+  }, [playing]);
+
+  // Drift correction — only re-seek if drift exceeds threshold
+  React.useEffect(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    const drift = Math.abs(a.currentTime - time);
+    if (drift > 0.4) a.currentTime = time;
+  });
+
+  return (
+    <audio
+      ref={audioRef}
+      src={src}
+      preload="auto"
+      style={{ display: 'none' }}
+    />
+  );
+}
+
+// ── Persistent S = k log W chalk in top-left (motif) — same as draft ────────
+function PersistentEntropyChalkFull() {
+  return (
+    <div style={{
+      position: 'absolute', left: 80, top: 90,
+      fontFamily: FONTS.serifEn, fontStyle: 'italic',
+      fontSize: 36, color: COLORS.chalkDim,
+      letterSpacing: '0.04em',
+      opacity: 0.32,
+      textShadow: '0 0 20px rgba(244,238,222,0.1)',
+      whiteSpace: 'nowrap',
+      pointerEvents: 'none',
+    }}>S = k · log W</div>
+  );
+}
+
+// ── Reunion amplitude formula (Block 5 main + 同归 morph source) ────────────
+// Story-named bra-ket: ⟨2026 reunion | 02级·物理⟩ = Σ paths · e^(iS/ℏ)
+// State names rendered upright to stand out from italic formula glyphs.
+function ReunionAmplitudeFormulaJsx() {
+  const stateStyle = {
+    fontStyle: 'normal',
+    fontFamily: FONTS.serifEn,
+    fontWeight: 500,
+    padding: '0 0.06em',
+  };
+  const stateCnStyle = {
+    fontStyle: 'normal',
+    fontFamily: FONTS.serifCn,
+    fontWeight: 500,
+    padding: '0 0.06em',
+  };
+  const sepStyle = { fontStyle: 'normal', padding: '0 0.08em' };
+  return (
+    <span>
+      ⟨<span style={stateStyle}>2026 reunion</span>
+      <span style={sepStyle}>|</span>
+      <span style={stateCnStyle}>02级·物理</span>⟩
+      {' = '}
+      Σ <span style={{ fontFamily: FONTS.serifEn }}>paths</span>
+      {' · '}
+      e<sup style={{ fontSize: '0.55em', marginLeft: '0.06em', verticalAlign: 'super' }}>iS/ℏ</sup>
+    </span>
+  );
+}
+
+// Legacy alias — old name still used elsewhere; route to the new named-state form
+function PathIntegralFormulaJsx() {
+  return <ReunionAmplitudeFormulaJsx/>;
+}
+
+// Σ paths · e^(iS/ℏ) — preview form for the 殊途 transition card
+function SumOverPathsFormulaJsx() {
+  return (
+    <span>
+      Σ<sub style={{ fontSize: '0.5em', verticalAlign: 'baseline' }}>paths</sub>
+      {' · e'}
+      <sup style={{ fontSize: '0.55em', marginLeft: '0.04em', verticalAlign: 'super' }}>iS/ℏ</sup>
+    </span>
+  );
+}
+
+Object.assign(window, {
+  BlockTitle, LocationBadge, TransitionCard,
+  PhotoBlock, VideoClip, GhostPaths, GhostPhotoLayer,
+  BackgroundBGM,
+  PersistentEntropyChalkFull,
+  PathIntegralFormulaJsx, SumOverPathsFormulaJsx, ReunionAmplitudeFormulaJsx,
+  GHOST_CITIES, GHOST_ORIGIN, REUNION_NODE, GHOST_PHOTO_POSITIONS,
+});

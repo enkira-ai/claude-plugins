@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8"/>
+<title>南大物理 02级 · 毕业 20 周年聚会</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400;1,500&family=JetBrains+Mono:wght@400;500;600&family=Noto+Serif+SC:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; }
+  #root { position: absolute; inset: 0; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin></script>
+
+<!-- Framework + draft primitives (untouched) -->
+<script type="text/babel" src="animations.jsx"></script>
+<script type="text/babel" src="scenes/primitives.jsx"></script>
+
+<!-- Full reunion additions -->
+<script type="text/babel" src="scenes/primitives_full.jsx"></script>
+<script type="text/babel" src="scenes/photos_data.js"></script>
+<script type="text/babel" src="scenes/scenes_full.jsx"></script>
+
+<script type="text/babel" data-presets="env,react">
+  function VideoFull() {
+    return (
+      <Stage
+        width={1920}
+        height={1080}
+        duration={TF.TOTAL}
+        background={COLORS.bg}
+        persistKey="nanda02_full"
+        autoplay={false}
+      >
+        <BackgroundBGM src="bgm/bgm.mp3" volume={0.55}/>
+        <SceneTitleFull/>
+        <SceneVideoBoWen1/>
+        <SceneTransitionUnlock/>
+        <SceneVideoChenGongyu/>
+        <SceneBlock1Unlock/>
+        <SceneVideoLiChengdong/>
+        <SceneBlock2Memories/>
+        <SceneVideoYuWanqing/>
+        <SceneTransUnreserved/>
+        <SceneBlock3Mountains/>
+        <SceneVideoZhangWang/>
+        <SceneBlock4Roots/>
+        <SceneVideoGuoXing/>
+        <SceneTransSeparate/>
+        <SceneBlock5Evolution/>
+        <SceneTransConverge/>
+        <SceneVideoHuangZhangCheng/>
+        <SceneOutroFinal/>
+        <Vignette strength={0.55}/>
+      </Stage>
+    );
+  }
+
+  function App() {
+    return (
+      <div data-screen-label="reunion-full" style={{ position: 'absolute', inset: 0 }}>
+        <VideoFull/>
+      </div>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
