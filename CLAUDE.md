@@ -72,6 +72,7 @@ Skills reference it via: `bash ${CLAUDE_PLUGIN_ROOT}/scripts/run-python.sh ${CLA
 - **enkira-cloudflare-dns** — Cloudflare DNS record/zone management via API
 - **enkira-azure-containerapp** — Bind custom domain + managed SSL to Azure Container Apps
 - **wechat-reader** — Extract content from WeChat Official Account articles
-- **autopilot** — Overnight PR grind: create PRs from issues, address reviewer feedback
+- **autopilot** — Overnight PR grind: create PRs from issues, address reviewer feedback (stops before merge)
+- **pr-shepherd** — Drive one or a sequence of open PRs to merge: drain reviews to a fixpoint, pass CI, run the test plan, auto-merge on a green gate; rebases later PRs in a sequence. The merging counterpart to autopilot.
 - **agent-chat** — Round-robin chat protocol for 2..N AI agents (Claude Code, Codex, Gemini CLI, or any combination) to collaborate on hard problems, with auditable transcripts that include each subagent's setup prompt
 - **codex-review** — One-shot cross-model review via the Codex CLI (uncommitted / branch / commit). Catches blind spots Claude's own review misses.

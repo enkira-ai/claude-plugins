@@ -1,0 +1,10 @@
+{
+  "name": "pr-shepherd",
+  "description": "Shepherd one or an ordered sequence of open PRs all the way to merge. Drains every review thread to a fixpoint (reply inline, then resolve), waits out CI on a hardened observe-only poll loop, runs the test plan, then auto-merges on a fully green gate. For a sequence, rebases each later PR onto the freshly-merged main before shepherding it so stacked PRs never collide. GitHub-first; gitlab.com parity table included.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Enkira AI"
+  },
+  "skills": "./skills/",
+  "commands": "./commands/"
+}

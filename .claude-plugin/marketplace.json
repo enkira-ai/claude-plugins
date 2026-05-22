@@ -152,6 +152,17 @@
       },
       "category": "creative",
       "keywords": ["video", "slideshow", "tribute", "anniversary", "memorial", "year-in-review", "montage", "ffmpeg", "deepgram", "suno", "heartlib", "remotion-alternative", "narrative", "story-video"]
+    },
+    {
+      "name": "pr-shepherd",
+      "source": "./plugins/pr-shepherd",
+      "description": "Shepherd one or an ordered sequence of open PRs all the way to merge — drain every review thread (reply inline, then resolve, as a fixpoint), wait out CI on a hardened observe-only poll loop, run the test plan, then auto-merge on a fully green gate. For a sequence, rebases each later PR onto the freshly-merged main so stacked PRs never collide. The merging counterpart to autopilot.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Enkira AI"
+      },
+      "category": "development",
+      "keywords": ["pr", "shepherd", "merge", "review", "ci", "drain", "resolve", "sequence", "rebase", "stacked-prs", "github", "gitlab", "autopilot", "loop"]
     }
   ]
 }
