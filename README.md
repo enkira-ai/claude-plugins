@@ -56,6 +56,26 @@ Manage Cloudflare DNS records (CNAME, A, TXT) via the Cloudflare API. Reads `CLO
 
 Bind a custom domain + managed SSL certificate to an Azure Container App. End-to-end: FQDN lookup, Cloudflare DNS records (incl. ASUID verification TXT), certificate provisioning, hostname bind. Depends on `enkira-cloudflare-dns` for the DNS step.
 
+### wechat-reader
+
+Read and extract clean article content from WeChat Official Account articles (`mp.weixin.qq.com`).
+
+### autopilot
+
+Overnight PR grind — creates PRs from ready issues, then addresses reviewer feedback (human and bot) in a loop, stopping each PR at "ready to merge" without ever auto-merging. Works with GitHub and gitlab.com.
+
+**Command:** `/autopilot:autopilot`
+
+Pair with `/loop` for continuous overnight operation.
+
+### pr-shepherd
+
+The merging counterpart to `autopilot` — takes already-open PRs and drives each one to a clean merge: drains every review thread (reply inline, then resolve), waits out CI on a hardened observe-only poll loop, runs the test plan, then auto-merges on a fully green gate. For an ordered sequence of PRs, rebases each later PR onto the freshly-merged `main` so stacked PRs never collide.
+
+**Command:** `/pr-shepherd:shepherd <PR#> [<PR#> ...]`
+
+Hard stops — a human "Request changes" review, a draft PR, unsatisfied branch protection, an unresolvable conflict, or capped review ping-pong — always block the merge. GitHub-first, with a gitlab.com parity table.
+
 ### agent-chat
 
 Ping-pong chat protocol for two AI agents (Claude Code, Codex, Gemini CLI, or any pair) to collaborate on hard problems — brainstorming, debating design, working through a proof together.
@@ -69,6 +89,12 @@ Ping-pong chat protocol for two AI agents (Claude Code, Codex, Gemini CLI, or an
 - Role-neutral launcher patterns so Claude Code, Codex, or Gemini CLI can be either the main agent or spawned subagent
 
 **Discussion only:** the skill enforces a "wait for human review" rule after the transcript is generated. Neither agent may act on the discussion until the human explicitly approves.
+
+### codex-review
+
+Non-interactive second-opinion reviews via the Codex CLI — wraps `codex review` for uncommitted changes, branch diffs, or specific commits. Use for RFCs, PR prep, or any work where an independent cross-model reviewer would catch blind spots Claude's own review misses.
+
+**Command:** `/codex-review:review`
 
 ### narrative-video-production
 
