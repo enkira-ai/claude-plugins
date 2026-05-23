@@ -98,14 +98,70 @@ Codex will flag files it sees in the change set even if they're incidental (e.g.
 
 ## Presenting findings
 
-After `codex review` completes, give the user:
+**Default: post the review on the PR, not in chat.** If the change set under review corresponds to an open GitHub PR, post the codex findings as a PR review with inline comments (and code-change suggestions where codex proposes a concrete fix). Only fall back to reporting in chat when there is no PR.
+
+### Step 1 — locate the PR
+
+Detect the PR for the change set being reviewed:
+
+```bash
+# commit mode: find the branch/PR containing the SHA
+gh pr list --repo <owner>/<repo> --state open --json number,headRefName,url --search "<SHA>"
+# branch/uncommitted mode: PR for the current branch
+gh pr list --repo <owner>/<repo> --head "$(git branch --show-current)" --state open --json number,url
+```
+
+If no open PR exists, skip to **chat fallback** below.
+
+### Step 2 — post the review on the PR
+
+Build one PR review containing every in-scope finding as an **inline comment** anchored to the file + line codex reported. When codex proposes a concrete fix, include a GitHub `suggestion` block so the user can one-click apply it:
+
+````
+[P2] Short title — codex
+
+Explanation of the issue.
+
+```suggestion
+<exact replacement for the commented line range>
+```
+````
+
+Post all comments in a single review via the GitHub API (JSON payload piped in):
+
+```bash
+gh api repos/<owner>/<repo>/pulls/<N>/reviews --input - <<'JSON'
+{
+  "event": "COMMENT",
+  "body": "## 🤖 Codex independent review\n\n<one-line verdict>",
+  "comments": [
+    {"path": "relative/path.py", "line": 42, "side": "RIGHT", "body": "[P1] ...\n\n```suggestion\nfixed line\n```"}
+  ]
+}
+JSON
+```
+
+Notes:
+- `path` must be **repo-relative** (trim the absolute path codex prints).
+- `line` is the line in the PR diff's new file (`side: RIGHT`); use both `start_line` and `line` for multi-line ranges.
+- A `suggestion` block must contain the exact replacement for the commented line range — verify it against the actual file content before posting, or the suggestion will be malformed.
+- **Clean review (no findings):** still post a single review comment with the codex verdict (`event: COMMENT`, no `comments[]`) so the independent pass is recorded on the PR. Do not approve on codex's behalf.
+- Never post `event: REQUEST_CHANGES` or `APPROVE` — codex is advisory; use `COMMENT` and let the user decide.
+
+### Step 3 — summarize in chat (brief)
+
+After posting, give the user a one-sentence verdict + a link to the posted review. Do **not** re-dump every finding in chat — they're on the PR now. Mention dropped/out-of-scope findings briefly.
+
+### Chat fallback (no PR)
+
+When there is no open PR, report in chat instead:
 
 1. **One-sentence verdict** — did codex find anything blocking, or is it a clean review?
-2. **Numbered list of actionable findings** (P0/P1/P2 that apply to files in-scope) with your assessment of whether to act on each.
-3. **Dropped findings** (in-scope but you disagree, or out-of-scope untracked files) — briefly, so the user can override if needed.
-4. **Offer to fix** — for findings the user should act on, ask whether to apply the fix now or let them decide.
+2. **Numbered list of actionable findings** (P0/P1/P2 in-scope) with your assessment of whether to act on each.
+3. **Dropped findings** (disagree, or out-of-scope untracked files) — briefly.
+4. **Offer to fix** — ask whether to apply now or let the user decide.
 
-Never silently apply a codex fix — review comments are recommendations, and the user is the decider. Present, then act on approval.
+Never silently apply a codex fix — review comments are recommendations, and the user is the decider. Present (on the PR or in chat), then act on approval.
 
 ## Examples
 
@@ -117,7 +173,7 @@ Claude Code:
 1. `which codex && codex --version` → verify.
 2. `git status` → confirm change set is what the user thinks.
 3. `codex review --uncommitted --title "RFC-XXX: short title" 2>&1 | tail -200`.
-4. Parse output, report verdict + findings, ask whether to apply fixes.
+4. Locate the open PR, post findings as inline review comments (with `suggestion` blocks where codex proposes a fix), then give a one-line verdict + review link in chat. If no PR, fall back to chat.
 
 **Example — targeted review:**
 
@@ -125,7 +181,7 @@ User: "Codex, focus on whether the migration is safe under concurrent writes."
 
 Claude Code:
 1. Switch to branch mode: `codex review --base main --title "migration 0042 safety" "Focus exclusively on concurrency safety of the schema migration under live writes. Report: is this safe, and if not, what specifically breaks?" 2>&1 | tail -200`.
-2. Report back.
+2. Post findings on the branch's PR as inline comments; brief verdict + link in chat.
 
 ## Cost + rate notes
 
