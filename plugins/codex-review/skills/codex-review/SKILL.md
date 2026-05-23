@@ -143,7 +143,7 @@ JSON
 
 Notes:
 - `path` must be **repo-relative** (trim the absolute path codex prints).
-- `line` is the line in the PR diff's new file (`side: RIGHT`); use `start_line`+`line` for multi-line ranges.
+- `line` is the line in the PR diff's new file (`side: RIGHT`); use both `start_line` and `line` for multi-line ranges.
 - A `suggestion` block must contain the exact replacement for the commented line range — verify it against the actual file content before posting, or the suggestion will be malformed.
 - **Clean review (no findings):** still post a single review comment with the codex verdict (`event: COMMENT`, no `comments[]`) so the independent pass is recorded on the PR. Do not approve on codex's behalf.
 - Never post `event: REQUEST_CHANGES` or `APPROVE` — codex is advisory; use `COMMENT` and let the user decide.
