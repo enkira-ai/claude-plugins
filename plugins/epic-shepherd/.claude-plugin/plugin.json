@@ -1,0 +1,10 @@
+{
+  "name": "epic-shepherd",
+  "description": "Shepherd a whole GitHub Epic (issue with sub-issues) to completion. Snapshots the open sub-issue topology + blocked_by edges into a tier-ordered sequence, then on each tick dispatches an implementer for the next ready issue and hands the resulting PR off to pr-shepherd to merge. Composes cleanly with pr-shepherd (per-PR merge) and rfc-loop / autopilot (per-issue implementation). Phase 1 (extract-sequence) shipped; Phase 2 (tick loop) + Phase 3 (epic close-out) on the roadmap.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Enkira AI"
+  },
+  "skills": "./skills/",
+  "commands": "./commands/"
+}

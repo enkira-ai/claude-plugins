@@ -5,7 +5,7 @@
     "email": "dev@enkira.ai"
   },
   "metadata": {
-    "description": "Claude Code plugins by Enkira AI — productivity tools for AI-powered development",
+    "description": "Claude Code plugins by Enkira AI \u2014 productivity tools for AI-powered development",
     "version": "1.0.0",
     "pluginRoot": "./plugins"
   },
@@ -19,7 +19,11 @@
         "name": "Enkira AI"
       },
       "category": "productivity",
-      "keywords": ["sessions", "history", "conversations"]
+      "keywords": [
+        "sessions",
+        "history",
+        "conversations"
+      ]
     },
     {
       "name": "harness-engineer",
@@ -30,29 +34,53 @@
         "name": "Enkira AI"
       },
       "category": "development",
-      "keywords": ["harness", "autonomous", "agent", "scaffolding", "features", "progress", "testing"]
+      "keywords": [
+        "harness",
+        "autonomous",
+        "agent",
+        "scaffolding",
+        "features",
+        "progress",
+        "testing"
+      ]
     },
     {
       "name": "git-tools",
       "source": "./plugins/git-tools",
-      "description": "Git utilities for multi-account GitHub setups — configure SSH aliases and per-repo identity so commits and pushes always use the right account",
+      "description": "Git utilities for multi-account GitHub setups \u2014 configure SSH aliases and per-repo identity so commits and pushes always use the right account",
       "version": "1.0.0",
       "author": {
         "name": "Bo Wen"
       },
       "category": "development",
-      "keywords": ["git", "github", "ssh", "multi-account", "identity", "contributor", "author", "commit"]
+      "keywords": [
+        "git",
+        "github",
+        "ssh",
+        "multi-account",
+        "identity",
+        "contributor",
+        "author",
+        "commit"
+      ]
     },
     {
       "name": "enkira-infisical",
       "source": "./plugins/enkira-infisical",
-      "description": "Manage Infisical secrets across Enkira org projects — read, write, audit, bootstrap. CLI-based (SSO login), no static credentials on disk.",
+      "description": "Manage Infisical secrets across Enkira org projects \u2014 read, write, audit, bootstrap. CLI-based (SSO login), no static credentials on disk.",
       "version": "1.0.0",
       "author": {
         "name": "Enkira AI"
       },
       "category": "infrastructure",
-      "keywords": ["infisical", "secrets", "env", "credentials", "sso", "enkira"]
+      "keywords": [
+        "infisical",
+        "secrets",
+        "env",
+        "credentials",
+        "sso",
+        "enkira"
+      ]
     },
     {
       "name": "enkira-cloudflare-dns",
@@ -63,7 +91,15 @@
         "name": "Enkira AI"
       },
       "category": "infrastructure",
-      "keywords": ["cloudflare", "dns", "cname", "txt", "record", "zone", "enkira"]
+      "keywords": [
+        "cloudflare",
+        "dns",
+        "cname",
+        "txt",
+        "record",
+        "zone",
+        "enkira"
+      ]
     },
     {
       "name": "enkira-azure-containerapp",
@@ -74,7 +110,14 @@
         "name": "Enkira AI"
       },
       "category": "infrastructure",
-      "keywords": ["azure", "container-app", "custom-domain", "ssl", "cloudflare", "enkira"]
+      "keywords": [
+        "azure",
+        "container-app",
+        "custom-domain",
+        "ssl",
+        "cloudflare",
+        "enkira"
+      ]
     },
     {
       "name": "wechat-reader",
@@ -85,18 +128,35 @@
         "name": "Enkira AI"
       },
       "category": "productivity",
-      "keywords": ["wechat", "weixin", "article", "reader", "extract", "content"]
+      "keywords": [
+        "wechat",
+        "weixin",
+        "article",
+        "reader",
+        "extract",
+        "content"
+      ]
     },
     {
       "name": "autopilot",
       "source": "./plugins/autopilot",
-      "description": "Overnight PR grind — creates PRs from ready issues, addresses reviewer feedback (humans + bots like Copilot/Claude/Gemini), stops at 'ready to merge' (never auto-merges). Works with GitHub and gitlab.com.",
+      "description": "Overnight PR grind \u2014 creates PRs from ready issues, addresses reviewer feedback (humans + bots like Copilot/Claude/Gemini), stops at 'ready to merge' (never auto-merges). Works with GitHub and gitlab.com.",
       "version": "1.0.0",
       "author": {
         "name": "Enkira AI"
       },
       "category": "development",
-      "keywords": ["pr", "review", "autopilot", "loop", "github", "gitlab", "autonomous", "agent", "overnight"]
+      "keywords": [
+        "pr",
+        "review",
+        "autopilot",
+        "loop",
+        "github",
+        "gitlab",
+        "autonomous",
+        "agent",
+        "overnight"
+      ]
     },
     {
       "name": "agent-chat",
@@ -107,7 +167,19 @@
         "name": "Bo Wen"
       },
       "category": "productivity",
-      "keywords": ["agent", "multi-agent", "round-robin", "claude", "codex", "gemini", "chat", "collaboration", "brainstorming", "debate", "subagent"]
+      "keywords": [
+        "agent",
+        "multi-agent",
+        "round-robin",
+        "claude",
+        "codex",
+        "gemini",
+        "chat",
+        "collaboration",
+        "brainstorming",
+        "debate",
+        "subagent"
+      ]
     },
     {
       "name": "pdf-form-fill",
@@ -118,51 +190,136 @@
         "name": "Bo Wen"
       },
       "category": "productivity",
-      "keywords": ["pdf", "acroform", "form", "tax", "fill", "fillable", "irs", "government"]
+      "keywords": [
+        "pdf",
+        "acroform",
+        "form",
+        "tax",
+        "fill",
+        "fillable",
+        "irs",
+        "government"
+      ]
     },
     {
       "name": "codex-review",
       "source": "./plugins/codex-review",
-      "description": "Non-interactive second-opinion reviews via the Codex CLI. Wrap `codex review` for uncommitted changes, branch diffs, or specific commits — use for RFCs, PR prep, or any work where an independent cross-model reviewer would catch blind spots Claude's own review misses.",
+      "description": "Non-interactive second-opinion reviews via the Codex CLI. Wrap `codex review` for uncommitted changes, branch diffs, or specific commits \u2014 use for RFCs, PR prep, or any work where an independent cross-model reviewer would catch blind spots Claude's own review misses.",
       "version": "1.0.0",
       "author": {
         "name": "Bo Wen"
       },
       "category": "development",
-      "keywords": ["codex", "review", "second-opinion", "pr", "rfc", "code-review", "cross-model", "independent-review"]
+      "keywords": [
+        "codex",
+        "review",
+        "second-opinion",
+        "pr",
+        "rfc",
+        "code-review",
+        "cross-model",
+        "independent-review"
+      ]
     },
     {
       "name": "rfc-loop",
       "source": "./plugins/rfc-loop",
-      "description": "Subagent-driven RFC implementation loop. Breaks a merged RFC into one Epic + N sub-issues, then runs branch → held-implementer subagent (TDD) → spec-reviewer subagent → PR → Gemini + Codex cross-model review → merge, one chunk at a time. Main agent stays clean as a project manager; per-PR implementer subagents do the coding via Agent + SendMessage.",
+      "description": "Subagent-driven RFC implementation loop. Breaks a merged RFC into one Epic + N sub-issues, then runs branch \u2192 held-implementer subagent (TDD) \u2192 spec-reviewer subagent \u2192 PR \u2192 Gemini + Codex cross-model review \u2192 merge, one chunk at a time. Main agent stays clean as a project manager; per-PR implementer subagents do the coding via Agent + SendMessage.",
       "version": "1.0.0",
       "author": {
         "name": "Bo Wen"
       },
       "category": "development",
-      "keywords": ["rfc", "implementation", "subagent", "tdd", "epic", "pr", "github", "review", "codex", "gemini", "project-management"]
+      "keywords": [
+        "rfc",
+        "implementation",
+        "subagent",
+        "tdd",
+        "epic",
+        "pr",
+        "github",
+        "review",
+        "codex",
+        "gemini",
+        "project-management"
+      ]
     },
     {
       "name": "narrative-video-production",
       "source": "./plugins/narrative-video-production",
-      "description": "End-to-end playbook for producing a multi-segment narrative video that mixes photos, embedded videos, BGM, and on-screen text — assembled in a custom in-browser composition (HTML + React/Babel-standalone), captured via screen recording, and finished with ffmpeg. Covers tributes, anniversaries, year-in-reviews, project retrospectives, slideshows with theme, conference recaps, and similar mixed-media story videos.",
+      "description": "End-to-end playbook for producing a multi-segment narrative video that mixes photos, embedded videos, BGM, and on-screen text \u2014 assembled in a custom in-browser composition (HTML + React/Babel-standalone), captured via screen recording, and finished with ffmpeg. Covers tributes, anniversaries, year-in-reviews, project retrospectives, slideshows with theme, conference recaps, and similar mixed-media story videos.",
       "version": "1.0.0",
       "author": {
         "name": "Bo Wen"
       },
       "category": "creative",
-      "keywords": ["video", "slideshow", "tribute", "anniversary", "memorial", "year-in-review", "montage", "ffmpeg", "deepgram", "suno", "heartlib", "remotion-alternative", "narrative", "story-video"]
+      "keywords": [
+        "video",
+        "slideshow",
+        "tribute",
+        "anniversary",
+        "memorial",
+        "year-in-review",
+        "montage",
+        "ffmpeg",
+        "deepgram",
+        "suno",
+        "heartlib",
+        "remotion-alternative",
+        "narrative",
+        "story-video"
+      ]
+    },
+    {
+      "name": "epic-shepherd",
+      "source": "./plugins/epic-shepherd",
+      "description": "Shepherd a whole GitHub Epic (issue with sub-issues) to completion. Snapshots open sub-issue topology + blocked_by edges into a tier-ordered sequence JSON, then on each tick (Phase 2, roadmap) dispatches an implementer for the next ready issue and hands the resulting PR to pr-shepherd to merge. Composes cleanly with pr-shepherd (per-PR merge) and rfc-loop / autopilot (per-issue implementation). v0.1.0 ships Phase 1 (extract-sequence) only \u2014 already useful standalone.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Enkira AI"
+      },
+      "category": "development",
+      "keywords": [
+        "epic",
+        "shepherd",
+        "github",
+        "issues",
+        "subissues",
+        "dependencies",
+        "topological-sort",
+        "sequence",
+        "orchestration",
+        "loop",
+        "pr-shepherd",
+        "rfc-loop",
+        "autopilot"
+      ]
     },
     {
       "name": "pr-shepherd",
       "source": "./plugins/pr-shepherd",
-      "description": "Shepherd one or an ordered sequence of open PRs all the way to merge — drain every review thread (reply inline, then resolve, as a fixpoint), wait out CI on a hardened observe-only poll loop, run the test plan, then auto-merge on a fully green gate. For a sequence, rebases each later PR onto the freshly-merged main so stacked PRs never collide. The merging counterpart to autopilot.",
+      "description": "Shepherd one or an ordered sequence of open PRs all the way to merge \u2014 drain every review thread (reply inline, then resolve, as a fixpoint), wait out CI on a hardened observe-only poll loop, run the test plan, then auto-merge on a fully green gate. For a sequence, rebases each later PR onto the freshly-merged main so stacked PRs never collide. The merging counterpart to autopilot.",
       "version": "1.1.0",
       "author": {
         "name": "Enkira AI"
       },
       "category": "development",
-      "keywords": ["pr", "shepherd", "merge", "review", "ci", "drain", "resolve", "sequence", "rebase", "stacked-prs", "github", "gitlab", "autopilot", "loop"]
+      "keywords": [
+        "pr",
+        "shepherd",
+        "merge",
+        "review",
+        "ci",
+        "drain",
+        "resolve",
+        "sequence",
+        "rebase",
+        "stacked-prs",
+        "github",
+        "gitlab",
+        "autopilot",
+        "loop"
+      ]
     }
   ]
 }
