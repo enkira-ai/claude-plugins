@@ -2,7 +2,7 @@
 
 Shepherd a whole **GitHub Epic** (issue with sub-issues) to completion. Snapshots the open sub-issue topology + `blocked_by` edges into a tier-ordered sequence, then on each tick (Phase 2, roadmap) dispatches an implementer for the next ready issue and hands the resulting PR to [`pr-shepherd`](../pr-shepherd) to merge.
 
-Status: **v0.1.0** — Phase 1 only. Phase 2 (tick loop) + Phase 3 (close-out) on the roadmap. Phase 1 alone is already useful: it tells an operator (or an outer agent) what's actually actionable in a noisy epic.
+Status: **v0.2.0** — Phase 1 + Phase 2 shipped. Phase 3 (close-out report + epic close) on the roadmap.
 
 ## How it composes
 
@@ -85,14 +85,43 @@ Output is JSON (schema v1). Key fields:
 }
 ```
 
-## Phase 2: tick loop (roadmap — v0.2)
+## Phase 2: tick loop (v0.2.0, SHIPPED)
 
-`/loop /epic-shepherd:shepherd <epic-N>` — autonomous loop. Each tick:
+```
+/loop /epic-shepherd:shepherd <epic-N>
+```
 
-1. If `paused` → exit (do not reschedule).
-2. If `in_flight_pr` is set → invoke `pr-shepherd:pr-shepherd <PR>`. On merge → clear in-flight, regenerate snapshot, recurse. On hard stop → write `paused`, exit.
-3. Else if `sequence` non-empty → pop the tier-1 head, dispatch its implementer, poll for the opened PR, record into `in_flight_pr`.
-4. Else (sequence empty) → invoke Phase 3.
+Autonomous loop, self-paced via `ScheduleWakeup`. Each tick reads
+`/tmp/epic-shepherd-state-<epic>.json`, decides one action, persists,
+schedules the next wakeup (cache-friendly intervals — see SKILL.md), and
+exits. The `/loop` harness re-fires the slash command on each wakeup.
+
+Per-tick decision (from `scripts/state.sh status <epic>`):
+
+| Status | Action |
+|---|---|
+| `PAUSED <reason>` | Surface, EXIT (no reschedule). Operator clears via `state.sh resume <epic>`. |
+| `SHEPHERD <pr> <issue>` | Invoke `pr-shepherd:pr-shepherd <pr>` skill. On MERGED → `state.sh complete`, regenerate snapshot, schedule 60s. On HARD STOP → `state.sh pause`, exit. On IN-FLIGHT → schedule 600s. |
+| `DISPATCH <issue> <implementer> <tier>` | Dispatch implementer (rfc-loop / autopilot / inline). Poll for opened PR via `poll-for-pr.sh` (60s × 30 cap). On found → `state.sh mark-in-flight`, schedule 300s. On timeout → `state.sh pause`, exit. |
+| `CLOSEOUT` | Phase 3 (v0.3 roadmap). Today: surface "ready for close-out", exit. |
+| `MISSING` | Bootstrap: run extract-sequence.py, re-enter tick. |
+| `IDLE` | Shouldn't happen after a Phase 1 run; surface + exit. |
+
+### Hard stops that pause the loop
+
+- Human `CHANGES_REQUESTED` on the in-flight PR (pr-shepherd surfaces)
+- `mergeStateStatus=BLOCKED` (branch protection)
+- Unresolvable merge conflict
+- Review ping-pong > 3 rounds (pr-shepherd's cap)
+- Implementer failed / no PR opened in 30 min
+- In-flight PR closed without merge (operator action)
+- Cycle in regenerated sequence (`extract-sequence` exit 3)
+
+### State machine helpers
+
+- `scripts/state.sh status|show|mark-in-flight|complete|pause|resume` — atomic state I/O with flock + rename
+- `scripts/poll-for-pr.sh <issue> [--once] [--interval] [--cap]` — read-only poll for an opened PR closing the given issue
+- `scripts/extract-sequence.py` — re-run after every merge to refresh the sequence (in-flight + completed + paused preserved across regenerations)
 
 ## Phase 3: close-out (roadmap — v0.3)
 

@@ -1,6 +1,6 @@
 ---
 name: epic-shepherd
-description: Shepherd a whole GitHub Epic (issue with sub-issues) to completion. Phase 1 (shipped) snapshots open sub-issues + blocked_by edges into a tier-ordered sequence JSON. Phase 2 (roadmap) loops on the snapshot — dispatches an implementer for each ready issue, then hands the resulting PR to pr-shepherd to merge, regenerating the snapshot every tick so closed issues advance the frontier. Phase 3 (roadmap) writes the epic close-out report and closes the epic when the sequence empties. Triggers on "shepherd epic #N", "drive epic #N to completion", "snapshot epic #N's sequence".
+description: Shepherd a whole GitHub Epic (issue with sub-issues) to completion. Phase 1 snapshots open sub-issues + blocked_by edges into a tier-ordered sequence JSON. Phase 2 (the autonomous loop) drives each ready issue → dispatches an implementer (rfc-loop / autopilot / inline) → polls for the opened PR → hands off to pr-shepherd to drain reviews + merge → regenerates the snapshot every tick so closed issues advance the frontier. Phase 3 (roadmap) writes the epic close-out report and closes the epic. Triggers on "shepherd epic #N", "drive epic #N to completion", "snapshot epic #N's sequence", "/loop /epic-shepherd:shepherd <N>".
 ---
 
 # Epic Shepherd — Drive a Whole Epic to Completion
@@ -104,51 +104,155 @@ The script never mutates GitHub state — no issue closes, no PR opens, no
 project-board flips. It is safe to run repeatedly with no side-effects beyond
 overwriting the state file. Phase 2 owns all mutation.
 
-## Phase 2 — tick loop (ROADMAP — v0.2)
+## Phase 2 — tick loop (v0.2.0, SHIPPED)
 
-Sketch (subject to revision):
+Autonomous loop. Each tick decides one action based on persisted state.
+
+### Invocation
 
 ```
-each tick (self-paced via ScheduleWakeup):
-
-  if state.paused: surface reason, exit (no reschedule)
-
-  if state.in_flight_pr is set:
-    invoke pr-shepherd:pr-shepherd <state.in_flight_pr>
-    on MERGED   → clear in_flight_*, regenerate snapshot, recurse
-    on HARD STOP → write paused, exit
-    on IN-FLIGHT → schedule wakeup matching pr-shepherd's CI cap
-
-  else if state.sequence is non-empty:
-    item = state.sequence[0]                   # tier-1 head
-    implementer = item.implementer or state.default_implementer
-    dispatch implementer → opens PR with "Closes #<item.issue>"
-    poll for the PR (60s × 30 cap) → record number to state.in_flight_pr
-    schedule short wakeup (3-5 min) to start shepherding
-
-  else:
-    invoke Phase 3 close-out
+/loop /epic-shepherd:shepherd <epic-N>
 ```
 
-### Implementer dispatch (Phase 2 design)
+(Slash command is `/epic-shepherd:shepherd`; `/loop` is the harness that
+re-fires self-paced via `ScheduleWakeup`. Omit `/loop` for a single tick.)
+
+If the state file doesn't exist yet, the first tick bootstraps it by
+running Phase 1 (`extract-sequence.py`). Subsequent ticks regenerate the
+sequence portion of state after every merge so closed issues advance the
+frontier; the persisted `in_flight_*`, `completed`, and `paused` fields
+are preserved across regenerations.
+
+### The tick — one decision per invocation
+
+Read the current state, branch exactly once, persist, schedule wakeup
+(or exit if terminal).
+
+```
+0. Load state. If state file missing → run extract-sequence (Phase 1)
+   first, then re-enter the tick.
+
+1. status = scripts/state.sh status <epic>
+
+2. case status of:
+
+   "PAUSED <reason>" → surface reason to operator, EXIT (no reschedule).
+       Operator clears the pause via `scripts/state.sh resume <epic>`
+       once they have fixed the cause.
+
+   "SHEPHERD <pr> <issue>" → invoke `pr-shepherd:pr-shepherd` skill on
+       <pr>. Wait for it to complete (pr-shepherd itself uses
+       watch-pr.sh as observe-only CI poll). On its return:
+         MERGED   → `state.sh complete <epic> <issue> <pr>`
+                  → re-run extract-sequence.py to refresh the sequence
+                    (preserves completed + paused; rebuilds sequence
+                    from current GitHub state)
+                  → ScheduleWakeup 60s (handoff to next item)
+         HARD STOP (pr-shepherd surfaced and stopped) → `state.sh pause
+                    <epic> "<pr-shepherd hard stop on PR #N: <reason>>"`
+                  → EXIT (no reschedule)
+         IN-FLIGHT (still draining / CI pending — pr-shepherd's
+                    watch-pr.sh exited 6/timeout or 7/threads) →
+                    ScheduleWakeup 600s (10 min — matches the watcher
+                    cap; long enough to wait through a slow CI run but
+                    not so long we burn cache for nothing)
+
+   "DISPATCH <issue> <implementer> <tier>" → dispatch the implementer:
+         rfc-loop  → invoke rfc-loop:rfc-loop skill, scoped to one
+                     sub-issue (the LLM agent passes the sub-issue
+                     context + epic context, lets rfc-loop's
+                     held-implementer subagent do TDD)
+         autopilot → invoke autopilot:autopilot skill once (the
+                     mechanical-port path — autopilot opens the PR and
+                     addresses feedback but stops at "ready to merge";
+                     pr-shepherd takes over from there in step
+                     SHEPHERD on the next tick)
+         inline    → use the Agent tool with a focused implementer
+                     prompt; only for trivial changes (≤50 LoC,
+                     single-file). Anything substantive uses rfc-loop.
+       After dispatch returns (PR opened OR a deterministic "no PR
+       opened" signal), poll for the opened PR via:
+         scripts/poll-for-pr.sh <issue> --interval 60 --cap 1800
+       On found → `state.sh mark-in-flight <epic> <issue> <PR>`
+                → ScheduleWakeup 300s (let CI bots fire so SHEPHERD
+                  has something to drain on the next tick)
+       On timeout → `state.sh pause <epic> "no PR opened for issue
+                    #<issue> within 30 min — implementer dispatch
+                    may have failed; check the implementer's run
+                    artifacts"`
+                  → EXIT (no reschedule)
+
+   "CLOSEOUT" → invoke Phase 3 (roadmap — v0.3). Until v0.3 ships,
+       surface a one-line "epic ready for close-out — run
+       `gh issue close <epic> --reason completed` manually OR wait
+       for Phase 3 v0.3" and EXIT.
+
+   "IDLE" → no sequence, no completed work. This shouldn't happen after
+       a successful Phase 1 run; surface and EXIT.
+
+   "MISSING" → bootstrap: run extract-sequence.py, then re-enter the
+       tick.
+
+3. After the action, ScheduleWakeup as noted above. Pass back the EXACT
+   same /loop input verbatim so the next firing re-enters the skill.
+```
+
+### Cache-friendly wakeup pacing
+
+Per `/loop` skill's pacing guidance: the Anthropic prompt cache has a
+5-minute TTL. Sleeping past 300s loses the cache. Phase-2 picks reflect
+that:
+
+- **60s** — after a merge (about to start next item; cache stays warm).
+- **270s** — when actively draining reviews on a fast PR (under the
+  5-min cache window).
+- **300-600s** — pr-shepherd is in-flight with CI; expected delay is
+  minutes, accept the cache miss.
+- **1200s (20 min)** — long fallback when truly idle waiting on
+  external state (e.g. a CI run that takes 30+ min).
+
+### Implementer dispatch
 
 | `implementer` | What it invokes | Best for |
 |---------------|-----------------|----------|
 | `rfc-loop` (default) | rfc-loop:rfc-loop skill, scoped to one sub-issue | Substantive work needing TDD + design discipline |
 | `autopilot` | autopilot:autopilot skill — one pass | Mechanical ports, well-defined small changes |
-| `inline` | Direct implementation in the main agent | Trivial changes the orchestrator can do in-context |
+| `inline` | Agent tool with focused implementer prompt | Trivial single-file changes (≤50 LoC) |
 
-Each sequence item may override the default per-issue:
+Each sequence item may override the default per-issue at extract time
+or via post-extract hand-edit of the state JSON:
 `{"issue": 500, "implementer": "autopilot"}`.
 
-### Hard stops that pause the loop (Phase 2 design)
+The default-implementer choice matters: **safer (rfc-loop) is the right
+default** because the loop runs unattended — slow-but-correct beats
+fast-but-needs-rework when nobody is watching.
 
-Same as `pr-shepherd`'s hard stops, plus sequence-level:
+### Hard stops that pause the loop
 
-- Per-PR: `mergeStateStatus=BLOCKED`, human `CHANGES_REQUESTED`, unresolvable
-  conflict, 3-round ping-pong cap (delegated to `pr-shepherd`).
-- Sequence-level: implementer failure / no PR after 30 min, an opened PR
-  closed without merge, cycle detected in regenerated snapshot.
+When any of these trip, the tick writes `paused: {reason, at}` to state
+and exits without scheduling. The operator unblocks via
+`state.sh resume <epic>` after fixing the cause.
+
+| Hard stop | Source |
+|-----------|--------|
+| Human `CHANGES_REQUESTED` on the in-flight PR | pr-shepherd surfaces (Phase 1 §1.7) |
+| `mergeStateStatus=BLOCKED` (branch protection unsatisfied) | pr-shepherd surfaces |
+| Unresolvable merge conflict | pr-shepherd surfaces |
+| Review ping-pong > 3 rounds | pr-shepherd surfaces |
+| Implementer failed / no PR opened in 30 min | epic-shepherd, this skill |
+| In-flight PR closed without merge (operator action) | epic-shepherd (detected on next SHEPHERD) |
+| Cycle in regenerated sequence (rare — only if blocked-by edges change mid-run) | epic-shepherd (extract-sequence exits 3) |
+
+### State file mutation contract
+
+Phase 2 is the only writer that mutates `in_flight_pr`, `in_flight_issue`,
+`completed`, and `paused`. The `sequence` field is rewritten only by
+regenerating the snapshot (via Phase 1's `extract-sequence.py`) — never
+mutated in place.
+
+All mutation goes through `scripts/state.sh` (atomic-write via
+flock + rename). Never write the state file directly — concurrent ticks
+will race.
 
 ## Phase 3 — close-out (ROADMAP — v0.3)
 
