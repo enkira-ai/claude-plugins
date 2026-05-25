@@ -10,15 +10,32 @@
 # Usage:
 #   watch-pr.sh <PR-number> [--repo owner/repo] [--timeout S] [--interval S] [--grace S]
 #
-# Exit codes:
-#   0  GATE GREEN   — all CI green, 0 unresolved review threads
+# Exit codes (v1.1.0):
+#   0  GATE GREEN   — all CI green, 0 unresolved threads, check count stable
+#                     across two consecutive polls
 #   2  NEEDS RESYNC — mergeStateStatus is BEHIND / DIRTY (rebase onto main)
-#   3  CI NO-SHOW   — no CI checks appeared within the grace window
-#   4  CI FAILED    — a check is failing or cancelled
+#   3  CI NO-SHOW   — no CI checks on the head SHA after the grace window
+#   4  CI FAILED    — a check on the head SHA is failing/cancelled
 #   5  HARD STOP    — draft / human CHANGES_REQUESTED / BLOCKED / PR closed
-#   6  TIMEOUT      — wall-clock cap reached with CI still pending
-#   7  THREADS OPEN — CI green but unresolved review threads remain
+#   6  TIMEOUT      — wall-clock cap reached
+#   7  THREADS OPEN — unresolved review threads exist (drain them) — fires
+#                     regardless of CI state, so mid-CI bot re-reviews are
+#                     picked up immediately rather than only on CI completion
 #  64  USAGE/ENV    — bad arguments or missing gh/jq
+#
+# v1.1.0 (2026-05-25) — three correctness fixes derived from RFC-020 PR
+# shepherding experience:
+#   * CI enumeration via `gh api repos/.../commits/<head>/check-runs` rather
+#     than `gh pr checks` — the PR-level API leaks cancelled checks from
+#     superseded prior commits, causing false-alarm exit 4 right after a
+#     fix-push (observed on #495).
+#   * Exit 7 generalized to any unresolved-threads > 0 — so a bot re-review
+#     during a long pending CI run triggers a drain pass immediately, not
+#     just on CI completion (observed on #511).
+#   * Stabilization-wait before exit 0 — defer gate-green until check count
+#     is unchanged from the previous poll, so a check-run that registers
+#     between watcher polls (the pytest race on #495) can't trip a
+#     premature "all green" exit.
 #
 set -uo pipefail
 
@@ -68,14 +85,19 @@ log "watch-pr.sh: PR #$PR in $REPO  (timeout=${TIMEOUT}s interval=${INTERVAL}s g
 
 START=$(date +%s)
 poll=0
+# Stabilization-wait state: gate-green only fires when n_checks is unchanged
+# from the previous poll, so a check-run that registers between polls (the
+# pytest race observed on #495 — watcher exited "2/2 green" while a third
+# check was about to register) can't trip a premature "all green" exit.
+prev_n_checks=-1
 
 while :; do
   poll=$((poll + 1))
   elapsed=$(( $(date +%s) - START ))
 
-  # ---- PR view: state / draft / merge state / reviews -----------------------
+  # ---- PR view: state / draft / merge state / reviews / head SHA -----------
   view=$(gh pr view "$PR" --repo "$REPO" \
-      --json state,isDraft,mergeStateStatus,mergeable,reviewDecision,reviews 2>/dev/null || true)
+      --json state,isDraft,mergeStateStatus,mergeable,reviewDecision,reviews,headRefOid 2>/dev/null || true)
   if [ -z "$view" ] || ! echo "$view" | jq -e . >/dev/null 2>&1; then
     log "poll $poll (${elapsed}s): gh pr view failed (network?) — will retry"
     [ "$elapsed" -ge "$TIMEOUT" ] && { log "RESULT: TIMEOUT (could not read PR)"; exit 6; }
@@ -86,6 +108,7 @@ while :; do
   draft=$(echo "$view" | jq -r '.isDraft // false')
   merge_state=$(echo "$view" | jq -r '.mergeStateStatus // "UNKNOWN"')
   mergeable=$(echo "$view" | jq -r '.mergeable // "UNKNOWN"')
+  head_sha=$(echo "$view" | jq -r '.headRefOid // empty')
 
   # ---- terminal PR states ---------------------------------------------------
   if [ "$state" = "MERGED" ]; then log "RESULT: PR #$PR is already MERGED"; exit 0; fi
@@ -119,13 +142,22 @@ while :; do
     exit 2
   fi
 
-  # ---- CI checks ------------------------------------------------------------
-  checks=$(gh pr checks "$PR" --repo "$REPO" --json name,bucket,state 2>/dev/null || true)
-  echo "$checks" | jq -e 'type == "array"' >/dev/null 2>&1 || checks="[]"
-  n_checks=$(echo "$checks" | jq 'length' 2>/dev/null || echo 0)
-  n_fail=$(echo "$checks"   | jq '[.[] | select(.bucket=="fail" or .bucket=="cancel")] | length' 2>/dev/null || echo 0)
-  n_pend=$(echo "$checks"   | jq '[.[] | select(.bucket=="pending")] | length' 2>/dev/null || echo 0)
-  n_pass=$(echo "$checks"   | jq '[.[] | select(.bucket=="pass" or .bucket=="skipping")] | length' 2>/dev/null || echo 0)
+  # ---- CI checks (per-head-commit; PR-level enumeration leaks cancelled ---
+  # checks from superseded prior commits across a push and produces
+  # false-alarm exit-4. This API returns only the runs attached to the
+  # CURRENT head SHA — a push that cancels the prior run produces an empty
+  # list, which the no-show grace + stabilization-wait below handle.)
+  if [ -z "$head_sha" ]; then
+    log "poll $poll (${elapsed}s): head SHA not yet readable — will retry"
+    [ "$elapsed" -ge "$TIMEOUT" ] && { log "RESULT: TIMEOUT"; exit 6; }
+    sleep "$INTERVAL"; continue
+  fi
+  check_runs=$(gh api "repos/$REPO/commits/$head_sha/check-runs?per_page=100" 2>/dev/null || true)
+  echo "$check_runs" | jq -e '.check_runs | type == "array"' >/dev/null 2>&1 || check_runs='{"check_runs":[]}'
+  n_checks=$(echo "$check_runs" | jq '.check_runs | length' 2>/dev/null || echo 0)
+  n_pend=$(echo "$check_runs"   | jq '[.check_runs[] | select(.status != "completed")] | length' 2>/dev/null || echo 0)
+  n_fail=$(echo "$check_runs"   | jq '[.check_runs[] | select(.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out" or .conclusion=="action_required" or .conclusion=="startup_failure" or .conclusion=="stale")] | length' 2>/dev/null || echo 0)
+  n_pass=$(echo "$check_runs"   | jq '[.check_runs[] | select(.conclusion=="success" or .conclusion=="neutral" or .conclusion=="skipped")] | length' 2>/dev/null || echo 0)
 
   # ---- unresolved review threads -------------------------------------------
   unresolved=$(gh api graphql -F owner="$OWNER" -F repo="$NAME" -F pr="$PR" -f query='
@@ -137,38 +169,55 @@ while :; do
     | jq '[.data.repository.pullRequest.reviewThreads.nodes[]? | select(.isResolved==false)] | length' 2>/dev/null || true)
   [ -n "${unresolved:-}" ] || unresolved="?"
 
-  log "poll $poll (${elapsed}s): state=$state merge=$merge_state ci=${n_pass}pass/${n_fail}fail/${n_pend}pending of ${n_checks} unresolved_threads=$unresolved"
+  log "poll $poll (${elapsed}s): state=$state merge=$merge_state sha=${head_sha:0:7} ci=${n_pass}pass/${n_fail}fail/${n_pend}pending of ${n_checks} unresolved_threads=$unresolved"
 
   # ---- CI failed ------------------------------------------------------------
   if [ "${n_fail:-0}" -gt 0 ]; then
     log "RESULT: CI has ${n_fail} failing/cancelled check(s)"; exit 4
   fi
 
+  # ---- Threads to drain (generalized — fires regardless of CI state so a ---
+  # bot re-review that posts new threads mid-CI is picked up IMMEDIATELY
+  # rather than only on CI completion. Drain-reviews-FIRST discipline.)
+  if [ "${unresolved:-?}" != "?" ] && [ "${unresolved:-0}" -gt 0 ]; then
+    log "RESULT: ${unresolved} unresolved review thread(s) — drain them"; exit 7
+  fi
+
   # ---- CI still running -----------------------------------------------------
   if [ "${n_pend:-0}" -gt 0 ]; then
+    # Track the current count so the stabilization-wait below has a baseline
+    # as soon as any check registers — avoids a needless extra-poll wait on
+    # the very first gate-green poll once CI completes.
+    prev_n_checks="$n_checks"
     [ "$elapsed" -ge "$TIMEOUT" ] && { log "RESULT: TIMEOUT after ${elapsed}s — CI still pending"; exit 6; }
     sleep "$INTERVAL"; continue
   fi
 
-  # ---- no CI checks at all --------------------------------------------------
+  # ---- no CI checks on the head SHA at all ---------------------------------
   if [ "${n_checks:-0}" -eq 0 ]; then
     if [ "$elapsed" -ge "$GRACE" ]; then
-      log "RESULT: no CI checks after ${elapsed}s grace window — CI did not start"; exit 3
+      log "RESULT: no CI checks on $head_sha after ${elapsed}s grace window — CI did not start"; exit 3
     fi
     [ "$elapsed" -ge "$TIMEOUT" ] && { log "RESULT: TIMEOUT"; exit 6; }
     sleep "$INTERVAL"; continue
   fi
 
-  # ---- CI is green here (n_fail=0, n_pend=0, n_checks>0) --------------------
+  # ---- CI is green here (n_fail=0, n_pend=0, n_checks>0). Defer green ------
+  # until (a) the thread query is readable AND (b) the check count is stable
+  # across two consecutive polls — kills the "pytest registered between
+  # watcher exit and merge" race observed on #495.
   if [ "$unresolved" = "?" ]; then
     log "poll $poll: CI green but unresolved-thread query failed — will retry"
     [ "$elapsed" -ge "$TIMEOUT" ] && { log "RESULT: TIMEOUT (CI green, thread query unavailable)"; exit 6; }
     sleep "$INTERVAL"; continue
   fi
-  if [ "${unresolved:-0}" -gt 0 ]; then
-    log "RESULT: CI green, but ${unresolved} unresolved review thread(s) — drain them"; exit 7
+  if [ "$n_checks" != "$prev_n_checks" ]; then
+    log "poll $poll: gate appears green (${n_pass}/${n_checks}) but check count changed since previous poll (prev=${prev_n_checks}); waiting one more interval for stability"
+    prev_n_checks="$n_checks"
+    [ "$elapsed" -ge "$TIMEOUT" ] && { log "RESULT: TIMEOUT (gate appeared green but unstable)"; exit 6; }
+    sleep "$INTERVAL"; continue
   fi
 
-  log "RESULT: GATE GREEN — CI all green (${n_pass}/${n_checks}), 0 unresolved threads"
+  log "RESULT: GATE GREEN — CI all green (${n_pass}/${n_checks}), 0 unresolved threads, count stable"
   exit 0
 done

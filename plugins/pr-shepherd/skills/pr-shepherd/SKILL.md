@@ -442,14 +442,20 @@ Each poll it reads `mergeStateStatus`, `isDraft`, `reviewDecision` (via
 
 | Code | Meaning | What you do |
 |------|---------|-------------|
-| `0` | **Gate green** — all CI concluded green, 0 unresolved threads | Phase 1.6 fixpoint re-check, then merge |
+| `0` | **Gate green** — all CI green, 0 unresolved threads, check count stable across two consecutive polls | Phase 1.6 fixpoint re-check, then merge |
 | `2` | **Needs resync** — `mergeStateStatus` is `BEHIND`/`DIRTY` | Rebase onto `main` (Phase 2), push, re-run |
-| `3` | **CI no-show** — no CI checks after the grace window | Investigate: workflow not triggered / path-filtered |
-| `4` | **CI failed** — a check is `FAILURE`/`CANCELLED`/`TIMED_OUT` | Read logs, fix, commit, push, re-run |
+| `3` | **CI no-show** — no CI checks on the head SHA after the grace window | Investigate: workflow not triggered / path-filtered |
+| `4` | **CI failed** — a check on the head SHA is failing/cancelled | Read logs, fix, commit, push, re-run |
 | `5` | **Hard stop** — draft, human `CHANGES_REQUESTED`, or `BLOCKED` | Phase 1.7 — surface, do not merge |
-| `6` | **Timeout** — wall-clock cap hit, CI still pending | Report state; re-run if you want to keep waiting |
-| `7` | **Threads open** — CI green but unresolved threads remain | Phase 1.3 — drain them, then re-run |
+| `6` | **Timeout** — wall-clock cap hit (CI still pending or gate unstable) | Report state; re-run if you want to keep waiting |
+| `7` | **Threads open** — unresolved review threads exist (fires regardless of CI state — drain mid-CI bot re-reviews immediately, not just on CI completion) | Phase 1.3 — drain them, then re-run |
 | `64`| **Bad usage / env** — bad arguments, or `gh`/`jq` not installed | Fix the invocation; install the missing CLI |
+
+**v1.1.0 contract changes** — three correctness fixes derived from real shepherding experience on the RFC-020 PRs:
+
+- CI enumeration uses `gh api repos/.../commits/<head_sha>/check-runs` (per-commit) rather than `gh pr checks` (PR-level). The PR-level API leaks cancelled checks from superseded prior commits across a push, producing false-alarm exit `4` right after a fix-push (observed on #495's CI re-run after a force-push superseded the prior pytest job).
+- Exit `7` is generalized to fire whenever `unresolved_threads > 0`, regardless of CI state. This catches mid-CI bot re-reviews (Gemini/Codex/Copilot re-running on a new push) so the agent drains them immediately instead of waiting another hour for CI. **Implication:** drain reviews to 0 BEFORE arming the watcher, or the very first poll will exit `7` and tell you to drain.
+- Stabilization-wait before exit `0`: gate-green is deferred until the check count is unchanged from the previous poll. Kills the "pytest registered between watcher exit and merge" race (the #495 near-miss where the watcher said `2/2 green` and would have merged before pytest's 3rd check registered for the new head).
 
 It prints one status line per poll and a final summary line, so a backgrounded
 run leaves a readable trail.
