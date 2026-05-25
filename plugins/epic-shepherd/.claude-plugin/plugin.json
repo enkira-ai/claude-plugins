@@ -1,7 +1,7 @@
 {
   "name": "epic-shepherd",
-  "description": "Shepherd a whole GitHub Epic (issue with sub-issues) to completion. Phase 1 (extract-sequence) snapshots open sub-issue topology + blocked_by edges into a tier-ordered sequence. Phase 2 (tick loop, /loop /epic-shepherd:shepherd) is the autonomous driver — dispatches an implementer (rfc-loop / autopilot / inline) for each ready issue, polls for the opened PR, hands off to pr-shepherd to drain reviews + merge, then regenerates the snapshot so closed issues advance the frontier. Hard stops (human CHANGES_REQUESTED, branch protection, conflict, ping-pong cap, implementer failure) pause the loop and surface the reason. Phase 3 (close-out report + gh issue close) on the roadmap for v0.3.",
-  "version": "0.2.0",
+  "description": "Shepherd a whole GitHub Epic (issue with sub-issues) end-to-end. Phase 1 (extract-sequence) snapshots open sub-issue topology + blocked_by edges into a tier-ordered sequence. Phase 2 (tick loop, /loop /epic-shepherd:shepherd) is the autonomous driver — dispatches an implementer (rfc-loop / autopilot / inline) for each ready issue, polls for the opened PR, hands off to pr-shepherd to drain reviews + merge, then regenerates the snapshot so closed issues advance the frontier. Phase 3 (v0.3.0) autonomously closes out the epic when the sequence empties: composes a close-out report, opens a PR that squash-closes the epic via 'Closes #N', shepherds that PR via pr-shepherd, exits the loop. Hard stops (human CHANGES_REQUESTED, branch protection, conflict, ping-pong cap, implementer failure, sub-issue reopened mid-closeout) pause and surface.",
+  "version": "0.3.0",
   "author": {
     "name": "Enkira AI"
   },

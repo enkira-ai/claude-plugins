@@ -7,9 +7,11 @@
 # Subcommands:
 #   status   <epic> [--state PATH]                       — one of:
 #       PAUSED <reason>
+#       CLOSED                           (terminal — closeout PR merged)
+#       CLOSEOUT_SHEPHERD <pr>           (Phase 3 PR in flight)
 #       SHEPHERD <pr> <issue>
 #       DISPATCH <issue> <implementer> <tier>
-#       CLOSEOUT
+#       CLOSEOUT_START                   (Phase 3 ready to begin)
 #       IDLE
 #       MISSING        (state file does not exist — run :extract first)
 #
@@ -29,6 +31,15 @@
 #
 #   show <epic> [--state PATH]                          — pretty-print
 #       current state to stderr (status + sequence head + counts).
+#
+#   mark-closeout-in-flight <epic> <pr> <branch> [--state PATH]
+#       — Phase 3: set closeout_pr + closeout_branch. Errors if either
+#       is already set (a closeout is already in progress).
+#
+#   complete-closeout <epic> <pr> [--state PATH]
+#       — Phase 3: append the closeout PR to completed, clear
+#       closeout_pr + closeout_branch, set closed_at. Terminal: the
+#       loop should not reschedule after this returns.
 #
 # Exit codes are 0 on success; 2 on missing state; 3 on schema violation;
 # 4 on bad usage. The 'status' subcommand always exits 0 and prints the
@@ -105,7 +116,24 @@ cmd_status() {
         return 0
     fi
 
-    # If a PR is in flight, shepherd it.
+    # CLOSED is terminal — set by complete-closeout. The tick should
+    # exit without rescheduling when it sees this.
+    if jq -e '(.closed_at // null) != null' <<<"$s" >/dev/null; then
+        echo "CLOSED"
+        return 0
+    fi
+
+    # Phase 3 in-flight: closeout PR already opened, shepherd it. Returned
+    # BEFORE the regular SHEPHERD branch so a closeout-PR-merged-then-
+    # extract-regenerated state never accidentally dispatches a new issue.
+    if jq -e '(.closeout_pr // null) != null' <<<"$s" >/dev/null; then
+        local cpr
+        cpr="$(jq -r '.closeout_pr' <<<"$s")"
+        echo "CLOSEOUT_SHEPHERD $cpr"
+        return 0
+    fi
+
+    # If a sub-issue PR is in flight, shepherd it.
     if jq -e '.in_flight_pr != null' <<<"$s" >/dev/null; then
         local pr issue
         pr="$(jq -r '.in_flight_pr' <<<"$s")"
@@ -130,9 +158,9 @@ cmd_status() {
         return 0
     fi
 
-    # Sequence empty + no in-flight = ready for closeout (Phase 3).
+    # Sequence empty + no in-flight + no closeout_pr = Phase 3 starts now.
     if jq -e '.completed | length > 0' <<<"$s" >/dev/null; then
-        echo "CLOSEOUT"
+        echo "CLOSEOUT_START"
         return 0
     fi
 
@@ -219,6 +247,49 @@ cmd_resume() {
     echo "resumed" >&2
 }
 
+cmd_mark_closeout_in_flight() {
+    local pr="${extra_args[0]:-}"
+    local branch="${extra_args[1]:-}"
+    [[ "$pr" =~ ^[0-9]+$ ]] || die "mark-closeout-in-flight needs <pr> <branch>" 4
+    [ -n "$branch" ] || die "mark-closeout-in-flight needs <pr> <branch>" 4
+    local s; s="$(read_state)" || die "state file missing — run :extract first" 2
+    if jq -e '(.closeout_pr // null) != null' <<<"$s" >/dev/null; then
+        local existing
+        existing="$(jq -r '.closeout_pr' <<<"$s")"
+        die "closeout already in flight: PR #$existing. Use 'complete-closeout' first." 3
+    fi
+    if jq -e '(.closeout_branch // null) != null' <<<"$s" >/dev/null; then
+        local existing
+        existing="$(jq -r '.closeout_branch' <<<"$s")"
+        die "closeout_branch already set: $existing. Use 'complete-closeout' first." 3
+    fi
+    jq --argjson pr "$pr" --arg branch "$branch" \
+        '.closeout_pr = $pr | .closeout_branch = $branch' <<<"$s" \
+        | write_state
+    echo "marked closeout in-flight: PR #$pr on branch $branch" >&2
+}
+
+cmd_complete_closeout() {
+    local pr="${extra_args[0]:-}"
+    [[ "$pr" =~ ^[0-9]+$ ]] || die "complete-closeout needs <pr>" 4
+    local s; s="$(read_state)" || die "state file missing" 2
+
+    local recorded
+    recorded="$(jq -r '.closeout_pr // "null"' <<<"$s")"
+    if [ "$recorded" != "$pr" ] && [ "$recorded" != "null" ]; then
+        die "closeout_pr mismatch: state has $recorded, you said $pr" 3
+    fi
+
+    local closed_at; closed_at="$(utc_now)"
+    jq --argjson pr "$pr" --arg at "$closed_at" '
+        .completed += [{closeout_pr: $pr, merged_at: $at}]
+        | .closeout_pr = null
+        | .closeout_branch = null
+        | .closed_at = $at
+    ' <<<"$s" | write_state
+    echo "completed closeout: PR #$pr merged at $closed_at; epic marked terminal" >&2
+}
+
 cmd_show() {
     local s; s="$(read_state)" || die "state file missing" 2
     echo "=== epic-shepherd state ($state_path) ===" >&2
@@ -228,6 +299,9 @@ cmd_show() {
         "paused: \(.paused // "no")",
         "in_flight_pr: \(.in_flight_pr // "(none)")",
         "in_flight_issue: \(.in_flight_issue // "(none)")",
+        "closeout_pr: \(.closeout_pr // "(none)")",
+        "closeout_branch: \(.closeout_branch // "(none)")",
+        "closed_at: \(.closed_at // "(open)")",
         "sequence (\(.sequence | length)):",
         (.sequence[:5] | .[] | "  tier \(.tier)  #\(.issue)  \(.title // "")"),
         (if (.sequence | length) > 5 then "  ... and \((.sequence | length) - 5) more" else empty end),
@@ -237,11 +311,13 @@ cmd_show() {
 }
 
 case "$subcmd" in
-    status)         cmd_status         ;;
-    mark-in-flight) cmd_mark_in_flight ;;
-    complete)       cmd_complete       ;;
-    pause)          cmd_pause          ;;
-    resume)         cmd_resume         ;;
-    show)           cmd_show           ;;
+    status)                  cmd_status                  ;;
+    mark-in-flight)          cmd_mark_in_flight          ;;
+    complete)                cmd_complete                ;;
+    pause)                   cmd_pause                   ;;
+    resume)                  cmd_resume                  ;;
+    show)                    cmd_show                    ;;
+    mark-closeout-in-flight) cmd_mark_closeout_in_flight ;;
+    complete-closeout)       cmd_complete_closeout       ;;
     *) usage ;;
 esac

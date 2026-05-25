@@ -1,6 +1,6 @@
 ---
 name: epic-shepherd
-description: Shepherd a whole GitHub Epic (issue with sub-issues) to completion. Phase 1 snapshots open sub-issues + blocked_by edges into a tier-ordered sequence JSON. Phase 2 (the autonomous loop) drives each ready issue → dispatches an implementer (rfc-loop / autopilot / inline) → polls for the opened PR → hands off to pr-shepherd to drain reviews + merge → regenerates the snapshot every tick so closed issues advance the frontier. Phase 3 (roadmap) writes the epic close-out report and closes the epic. Triggers on "shepherd epic #N", "drive epic #N to completion", "snapshot epic #N's sequence", "/loop /epic-shepherd:shepherd <N>".
+description: Shepherd a whole GitHub Epic (issue with sub-issues) to completion. Phase 1 snapshots open sub-issues + blocked_by edges into a tier-ordered sequence JSON. Phase 2 (the autonomous loop) drives each ready issue → dispatches an implementer (rfc-loop / autopilot / inline) → polls for the opened PR → hands off to pr-shepherd to drain reviews + merge → regenerates the snapshot every tick so closed issues advance the frontier. Phase 3 (v0.3.0) writes a close-out report, opens a PR that squash-closes the epic, shepherds that PR to merge, and exits the loop. Triggers on "shepherd epic #N", "drive epic #N to completion", "snapshot epic #N's sequence", "/loop /epic-shepherd:shepherd <N>".
 ---
 
 # Epic Shepherd — Drive a Whole Epic to Completion
@@ -24,14 +24,17 @@ epic-shepherd  (this skill — issue-level orchestration)
   │     ↓ PR merges
   │     regenerate snapshot via Phase 1 → frontier advances → next tick
   │
-  └─ Phase 3: close-out  (ROADMAP — v0.3)
-        verify all subs closed → write docs/reports/<epic-closeout>.md →
-        gh issue close <epic>
+  └─ Phase 3: close-out  (v0.3.0, SHIPPED)
+        verify all subs closed → compose docs/reports/<epic-closeout>.md →
+        branch + commit + push + gh pr create ("Closes #<epic>") →
+        record closeout_pr in state → on next tick hand off to
+        pr-shepherd → on merge: epic auto-closes via "Closes #",
+        loop exits (terminal).
 ```
 
 `pr-shepherd` stays single-purpose (per-PR shepherd). `epic-shepherd` is the
 new orchestration layer that *calls* it. They are independent plugins; install
-both to use Phase 2 + 3 of this skill once they ship.
+both to use Phases 2 + 3 of this skill.
 
 ## When to invoke
 
@@ -43,9 +46,11 @@ both to use Phase 2 + 3 of this skill once they ship.
 - **Phase 2 (roadmap):**
   - "Shepherd epic #437 to completion", "drive epic #437 autonomously"
   - `/loop /epic-shepherd:shepherd 437` — autonomous tick loop until epic closes
-- **Phase 3 (roadmap):**
-  - Auto-fires inside Phase 2 when the sequence empties; not normally invoked
-    directly.
+- **Phase 3 (v0.3.0):**
+  - Auto-fires inside Phase 2 when the sequence empties + no in-flight PR +
+    at least one completed sub-issue; not normally invoked directly. The
+    `closeout.sh start|finalize|verify` helper is the operator-facing
+    handle if the loop ever needs manual nudging.
 
 ## Phase 1 — extract-sequence (v0.1.0, SHIPPED)
 
@@ -182,10 +187,31 @@ Read the current state, branch exactly once, persist, schedule wakeup
                     artifacts"`
                   → EXIT (no reschedule)
 
-   "CLOSEOUT" → invoke Phase 3 (roadmap — v0.3). Until v0.3 ships,
-       surface a one-line "epic ready for close-out — run
-       `gh issue close <epic> --reason completed` manually OR wait
-       for Phase 3 v0.3" and EXIT.
+   "CLOSEOUT_START" → invoke Phase 3 (v0.3.0). Run:
+         scripts/closeout.sh start <epic>
+       which verifies the rollup, composes the close-out report,
+       branch/commit/push, opens the close-out PR ("Closes #<epic>"),
+       and calls `state.sh mark-closeout-in-flight` to record it.
+       On success → ScheduleWakeup 300s (let CI bots fire on the
+                    newly-opened PR before SHEPHERD takes over).
+       On failure → `state.sh pause <epic> "closeout start failed:
+                    <reason>"` → EXIT.
+
+   "CLOSEOUT_SHEPHERD <pr>" → same as SHEPHERD but the PR is the
+       close-out report PR. Invoke `pr-shepherd:pr-shepherd <pr>`.
+       On its return:
+         MERGED   → run `closeout.sh finalize <epic>` (verifies the
+                    epic auto-closed via "Closes #", falls back to
+                    `gh issue close` if not, calls `state.sh
+                    complete-closeout`). Loop EXITS — no reschedule.
+                    Print "Epic #N complete, X PRs merged across Y
+                    sub-issues."
+         HARD STOP → `state.sh pause <epic> "<pr-shepherd hard stop
+                    on closeout PR #N: <reason>>"` → EXIT.
+         IN-FLIGHT → ScheduleWakeup 600s.
+
+   "CLOSED" → terminal. Closeout already finalized. EXIT without
+       reschedule. Loop is done.
 
    "IDLE" → no sequence, no completed work. This shouldn't happen after
        a successful Phase 1 run; surface and EXIT.
@@ -242,6 +268,8 @@ and exits without scheduling. The operator unblocks via
 | Implementer failed / no PR opened in 30 min | epic-shepherd, this skill |
 | In-flight PR closed without merge (operator action) | epic-shepherd (detected on next SHEPHERD) |
 | Cycle in regenerated sequence (rare — only if blocked-by edges change mid-run) | epic-shepherd (extract-sequence exits 3) |
+| Sub-issue REOPENED mid-closeout (Phase 3) | `closeout.sh verify` (run manually); state must be paused + closeout PR closed before resuming |
+| Closeout PR's CI / review hard-stops | pr-shepherd surfaces (same as a normal in-flight PR) |
 
 ### State file mutation contract
 
@@ -254,17 +282,98 @@ All mutation goes through `scripts/state.sh` (atomic-write via
 flock + rename). Never write the state file directly — concurrent ticks
 will race.
 
-## Phase 3 — close-out (ROADMAP — v0.3)
+## Phase 3 — close-out (v0.3.0, SHIPPED)
 
-When `sequence` is empty AND no `in_flight_pr`:
+Autonomous close-out. When Phase 2's tick sees `CLOSEOUT_START` (sequence
+empty, no in-flight PR, no closeout PR, at least one completed sub-issue),
+it hands off to `scripts/closeout.sh start <epic>`. Subsequent ticks
+shepherd the close-out PR via `pr-shepherd:pr-shepherd`; on merge,
+`closeout.sh finalize <epic>` finalizes and the loop exits.
 
-1. Verify every sub-issue closed via fresh GraphQL rollup.
-2. Compose a close-out report at `docs/reports/<UTC-date>-epic-<N>-closeout.md`
-   summarizing what landed (which sub-issues → which PRs → key files touched).
-3. Open a PR for the report (delegate to `autopilot:autopilot` with a one-shot
-   issue tied to the closeout).
-4. Once report PR merges, `gh issue close <epic> --reason completed`.
-5. Exit the loop (no further reschedule).
+### Per-tick flow
+
+```
+status = CLOSEOUT_START
+  → scripts/closeout.sh start <epic>
+        1. Verify GraphQL rollup: epic OPEN, ALL sub-issues CLOSED.
+           Any open sub-issue → exit 2 (refuse to close out).
+        2. Load completed list from state; for each entry with a PR
+           number, fetch PR title + merge SHA + merged_at + top-5 files.
+        3. Compose docs/reports/<UTC-date>-epic-<N>-closeout.md (heredoc
+           template inline in the script; renderable under --dry-run).
+        4. git checkout -b docs/epic-<N>-closeout; git add + commit + push.
+        5. gh pr create with body "Closes #<epic>" + checklist of all
+           completed sub-issues with their PR numbers.
+        6. state.sh mark-closeout-in-flight <epic> <pr> <branch>.
+        7. Print PR number to stdout.
+  → ScheduleWakeup 300s (let CI bots fire before SHEPHERD)
+
+status = CLOSEOUT_SHEPHERD <pr>
+  → invoke pr-shepherd:pr-shepherd <pr> (same as SHEPHERD)
+  → on MERGED:
+        scripts/closeout.sh finalize <epic>
+            1. Verify epic state == CLOSED (squash-merge of "Closes #N"
+               should have auto-closed it).
+            2. Fallback: gh issue close <epic> --reason completed if
+               epic somehow still OPEN.
+            3. state.sh complete-closeout <epic> <pr> — clears closeout_*
+               slots, appends final entry to completed, sets closed_at.
+        Print "Epic #N closed — X completed sub-issues (Y PRs merged),
+        closeout PR #M". EXIT — no reschedule.
+  → on HARD STOP: state.sh pause + EXIT
+  → on IN-FLIGHT: ScheduleWakeup 600s
+
+status = CLOSED → terminal. Tick exits without reschedule.
+```
+
+### Schema additions (v1.1 backward-compatible)
+
+Two new nullable fields, no `schema_version` bump:
+
+- `closeout_pr: int | null` — the close-out PR number once opened.
+- `closeout_branch: str | null` — branch name (e.g. `docs/epic-437-closeout`).
+  Useful for resuming a paused close-out.
+
+Plus, set by `complete-closeout`:
+
+- `closed_at: <ISO8601> | null` — non-null marks the epic terminal. The
+  `status` subcommand returns `CLOSED` when this is set so the loop knows
+  to exit.
+
+Old v0.1/v0.2 state files load fine — all three default to `null` via
+jq's `// null` defaulting.
+
+### New `state.sh` subcommands
+
+```bash
+state.sh mark-closeout-in-flight <epic> <pr> <branch>  # set both slots
+state.sh complete-closeout       <epic> <pr>           # clear + closed_at
+```
+
+### Phase 3 example
+
+```
+tick 1: status=CLOSEOUT_START
+        closeout.sh start 437  → opens PR #999
+        ScheduleWakeup 300s
+tick 2: status=CLOSEOUT_SHEPHERD 999
+        pr-shepherd #999 → IN-FLIGHT (CI still running)
+        ScheduleWakeup 600s
+tick 3: status=CLOSEOUT_SHEPHERD 999
+        pr-shepherd #999 → MERGED
+        closeout.sh finalize 437  → epic auto-closed, state cleared
+        prints: "Epic #437 closed — 8 completed sub-issues (8 PRs merged),
+                 closeout PR #999"
+        EXIT (no reschedule)
+```
+
+### Hard stops specific to Phase 3
+
+| Hard stop | Detected by | What to do |
+|-----------|-------------|------------|
+| Closeout-time rollup verify finds an OPEN sub-issue | `closeout.sh start` exits 2 | A sub-issue was reopened after the prior `state.sh complete` recorded it. Re-run `extract-sequence.py` to refresh the snapshot — Phase 2 will resume on the (now non-empty) sequence. |
+| Closeout PR's CI / review fails | `pr-shepherd` surfaces | Same as a regular SHEPHERD hard stop. Operator fixes the PR; loop resumes on next tick. |
+| Sub-issue reopened WHILE closeout PR is in flight | `closeout.sh verify` (run manually) | Pause the loop, close the closeout PR + delete the branch, re-extract, resume. |
 
 ## DO / DO NOT
 

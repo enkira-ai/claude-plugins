@@ -13,6 +13,13 @@ action (shepherd the in-flight PR / dispatch the next issue / close out)
 based on persisted state, then schedules the next wakeup at a
 cache-friendly interval.
 
+As of v0.3.0 the loop **self-closes the epic** via Phase 3 once the
+sequence empties: it composes a close-out report, opens a PR that
+squash-closes the epic via `Closes #<epic>`, hands that PR to
+pr-shepherd to merge, and exits. No operator action is needed after
+`/loop /epic-shepherd:shepherd <N>` is started — the loop runs end to
+end and stops on its own when the epic is fully closed.
+
 Compose with:
 
 - **pr-shepherd** (per-PR merge — already shipped) — Phase 2's SHEPHERD
