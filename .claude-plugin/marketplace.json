@@ -325,6 +325,31 @@
         "autopilot",
         "loop"
       ]
+    },
+    {
+      "name": "gedankenexperiment",
+      "source": "./plugins/gedankenexperiment",
+      "description": "Source-grounded scenario simulation and failure-mode synthesis. Mentally simulate workflows through the local code (the source of truth), build a failure-mode bank across normal/edge/adversarial/race/timeout/retry/partial-failure cases, cluster failures by shared root cause and missing invariant, then design durable invariant-level fixes — not per-transcript band-aids. Use to harden call/chat/order/scheduling/payment/onboarding flows, audit state transitions, find edge cases, or trace runtime behavior before implementing.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Enkira AI"
+      },
+      "category": "development",
+      "keywords": [
+        "gedankenexperiment",
+        "thought-experiment",
+        "simulation",
+        "failure-modes",
+        "hardening",
+        "edge-cases",
+        "scenario",
+        "invariants",
+        "root-cause",
+        "state-machine",
+        "audit",
+        "adversarial",
+        "debugging"
+      ]
     }
   ]
 }
