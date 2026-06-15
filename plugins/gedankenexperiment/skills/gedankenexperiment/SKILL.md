@@ -35,6 +35,37 @@ Gedankenexperiment to harden the onboarding workflow. If implementation is autho
 
 For best results, name the project, workflow, task mode, source-of-truth boundary, and any hard safety limits such as no live calls, no production changes, or analysis only.
 
+## Long Runs
+
+For any run that may exceed one focused turn, create and maintain a durable ledger. Do not rely on chat context as the source of truth.
+
+Default paths:
+
+- Use `.local/gedankenexperiment/YYYY-MM-DD-topic.md` for local, uncommitted working memory.
+- Use `docs/gedankenexperiment/YYYY-MM-DD-topic.md` only when the user wants a committed/shared artifact.
+
+Keep an `Active Context` section at the top with:
+
+- Current phase
+- Latest task-mode boundary
+- Source files inspected
+- Key state owners and invariants found
+- Next action
+- Explicit non-goals and safety limits
+
+Use stable IDs throughout:
+
+- `SCN-001` for scenarios
+- `FM-001` for failure modes
+- `RC-001` for root-cause clusters
+- `INV-001` for invariants
+- `FIX-001` for fix strategies
+- `TST-001` for tests
+
+Update the ledger after each phase and before any long pause. Preserve traceability, for example: `FIX-001 enforces INV-001 and covers FM-003, FM-007, FM-011`.
+
+When resuming, read the ledger first, verify current git status and relevant file drift, then continue from the recorded `Next action`. If the ledger and local code disagree, local code wins and the ledger must be corrected before proceeding.
+
 ## Workflow
 
 ### 1. Establish Source Of Truth
@@ -44,6 +75,7 @@ For best results, name the project, workflow, task mode, source-of-truth boundar
 - Identify the real runtime path, state owners, persistence boundaries, side-effect boundaries, and terminal states.
 - Prefer local source code over docs. Use docs as intended behavior only after code behavior is clear.
 - If code and docs disagree, report the drift explicitly.
+- For long runs, create or resume the durable ledger before deep analysis.
 
 ### 2. Mentally Simulate Scenarios
 
