@@ -330,7 +330,7 @@
       "name": "gedankenexperiment",
       "source": "./plugins/gedankenexperiment",
       "description": "Source-grounded scenario simulation, failure-mode synthesis, and fix blast-radius analysis. Mentally simulate workflows through the local code, build a failure-mode bank, cluster failures by shared root cause and missing invariant, design durable invariant-level fixes, then trace downstream repercussions across producers, consumers, APIs, events, cache, UI, permissions, and tests before implementation.",
-      "version": "1.0.4",
+      "version": "1.0.5",
       "author": {
         "name": "Enkira AI"
       },

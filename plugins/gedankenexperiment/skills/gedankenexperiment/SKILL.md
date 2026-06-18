@@ -396,35 +396,73 @@ Include only when implementation was authorized and performed:
 
 ## Next Step Options (Required After The Final Report)
 
-After posting the Final Report, offer a short decision menu. This menu is a phase handoff, not part of the verdict, and it does not authorize code changes by itself. Preserve task-mode boundaries: if the report was analysis-only, implementation still requires the human to choose an implementation option or give explicit implementation authorization.
+After posting the Final Report, offer a stable decision menu. This menu is a phase handoff, not part of the verdict, and it does not authorize code changes by itself. Preserve task-mode boundaries: if the report was analysis-only, implementation still requires the human to choose an implementation option or give explicit implementation authorization.
 
-Prefer the host runtime's native choice UI when it is available in the current client and mode. Keep native labels short, and include the exact prompt text in the surrounding message or fallback list so the human can inspect what will be run. If native choice UI is unavailable, limited, or would hide the prompt text, render the numbered Markdown list below. Never claim the options are clickable unless the runtime actually rendered native choices.
+Use the stable option labels below. Do not replace them with report-specific labels such as `Fix contract first`, `Harden recovery identity`, or `Documentation-only phase`. Put report-specific guidance inside the rationale and prompt body for the appropriate stable option.
 
-Default options:
+Use native choice/question UI when the current runtime exposes it in the current session and mode. In Claude Code, use the native multiple-choice question tool if available. In Codex, use the native choice/request-user-input tool if available. If native choice UI is unavailable, limited, or would hide the exact prompt text, render the Markdown fallback list. Never claim choices are clickable unless the runtime actually rendered native choices.
 
-1. **Write an implementation plan** - recommended when the report found confirmed defects or risks and there is not yet an approved plan.
+Always make the exact prompt text visible either inside the native choice body or immediately next to the fallback option. The human must be able to inspect what choosing the option will ask the next agent to do.
+
+### Menu Composition
+
+- If the report found confirmed defects or material risks and there is not yet an approved implementation plan, show: `Write implementation plan`, `Deepen analysis`, `Request independent review`, and `Stop at report`.
+- If an approved implementation plan already exists, or the human explicitly authorized code changes in the current prompt, also show `Implement approved plan`.
+- If the report is `PASS` with no material risks, show `Stop at report` first and include only options that still make sense.
+- If a native choice UI supports fewer than all relevant options, prioritize `Write implementation plan`, `Deepen analysis`, and `Stop at report` unless an approved plan already exists; in that case include `Implement approved plan` instead of `Deepen analysis`.
+
+### Stable Options
+
+1. **Write implementation plan** - recommended when the report found confirmed defects or risks and there is not yet an approved plan. Use the rationale line to name the highest-priority `FIX-*`, `CC-*`, `FIFM-*`, or `TST-*` IDs.
    ```text
    Use the gedankenexperiment report above as the source of truth. Use superpowers:writing-plans if available. Write an implementation plan that preserves every FIX-*, CC-*, FIFM-*, and TST-* ID, covers downstream consumers and no-impact claims, and stops before modifying code.
    ```
 
-2. **Deepen the analysis** - use when the report has important unknowns, thin evidence, or a risky `FIX-*`.
+2. **Deepen analysis** - use when the report has important unknowns, thin evidence, or a risky `FIX-*`. Replace the bracketed placeholder with the specific IDs or uncertainty pockets from the report.
    ```text
    Run another gedankenexperiment pass on the report above, focused on [FM/FIX/CC/unknown IDs]. Do not modify code. Expand scenarios, downstream consumers, no-impact evidence, and validation requirements.
    ```
 
-3. **Implement an approved plan** - use only when a concrete implementation plan already exists and the human wants code changes now.
-   ```text
-   Implement the approved plan using superpowers:executing-plans or superpowers:subagent-driven-development if available. Preserve the gedankenexperiment IDs in commits/tests. Stop and report if implementation reveals a new changed contract, downstream consumer, or fix-induced failure mode not covered by the plan.
-   ```
-
-4. **Request independent review** - use before implementation when the fix strategy is high-risk or cross-module.
+3. **Request independent review** - use before implementation when the fix strategy is high-risk, cross-module, or likely to have hidden downstream impact. Name the report's riskiest root-cause, contract, and no-impact claims in the rationale.
    ```text
    Review the gedankenexperiment report and proposed plan independently. Challenge the root-cause clusters, FIX-* coverage, CC-* blast radius, FIFM-* handling, no-impact claims, and validation plan. Do not modify code.
    ```
 
-5. **Stop at the report** - use when the human only wanted analysis or wants to decide later.
+4. **Implement approved plan** - use only when a concrete implementation plan already exists, or the human explicitly authorized implementation in the current prompt.
+   ```text
+   Implement the approved plan using superpowers:executing-plans or superpowers:subagent-driven-development if available. Preserve the gedankenexperiment IDs in commits/tests. Stop and report if implementation reveals a new changed contract, downstream consumer, or fix-induced failure mode not covered by the plan.
+   ```
+
+5. **Stop at report** - use when the human only wanted analysis or wants to decide later.
    ```text
    Stop here. Treat the gedankenexperiment report as the current artifact of record.
    ```
 
-When a native choice UI supports fewer than all options, prioritize `Write an implementation plan`, `Deepen the analysis`, and `Stop at the report` unless the human already provided an approved plan; in that case include `Implement an approved plan` instead of `Deepen the analysis`.
+### Fallback Rendering Rules
+
+When rendering Markdown fallback, use this shape so Codex and Claude outputs stay aligned:
+
+````markdown
+### Next Step Options
+
+1. **Write implementation plan** - recommended because [report-specific reason].
+   ```text
+   [exact prompt]
+   ```
+2. **Deepen analysis** - use if [report-specific uncertainty].
+   ```text
+   [exact prompt]
+   ```
+3. **Request independent review** - use if [report-specific review risk].
+   ```text
+   [exact prompt]
+   ```
+4. **Implement approved plan** - include only when an approved plan exists or implementation was explicitly authorized.
+   ```text
+   [exact prompt]
+   ```
+5. **Stop at report** - no further action now.
+   ```text
+   Stop here. Treat the gedankenexperiment report as the current artifact of record.
+   ```
+````
