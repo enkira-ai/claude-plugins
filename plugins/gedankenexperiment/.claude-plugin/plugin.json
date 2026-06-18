@@ -1,7 +1,7 @@
 {
   "name": "gedankenexperiment",
-  "description": "Source-grounded scenario simulation and failure-mode synthesis. Mentally simulate workflows through the local code (the source of truth), build a failure-mode bank across normal/edge/adversarial/race/timeout/retry/partial-failure cases, cluster failures by shared root cause and missing invariant, then design durable invariant-level fixes — not per-transcript band-aids. Use to harden call/chat/order/scheduling/payment/onboarding flows, audit state transitions, find edge cases, or trace runtime behavior before implementing.",
-  "version": "1.0.1",
+  "description": "Source-grounded scenario simulation, failure-mode synthesis, and fix blast-radius analysis. Mentally simulate workflows through the local code, build a failure-mode bank, cluster failures by shared root cause and missing invariant, design durable invariant-level fixes, then trace downstream repercussions across producers, consumers, APIs, events, cache, UI, permissions, and tests before implementation.",
+  "version": "1.0.2",
   "author": {
     "name": "Enkira AI"
   },

@@ -1,6 +1,6 @@
 ---
 name: gedankenexperiment
-description: Source-grounded scenario simulation and failure-mode synthesis. Use when asked to mentally simulate workflows, imagine realistic or adversarial scenarios, harden a system, find edge cases, audit state transitions, review call/chat/order/scheduling/payment/onboarding flows, or design durable fixes by tracing local code before implementation.
+description: Use when asked to mentally simulate workflows, imagine realistic or adversarial scenarios, harden a system, find edge cases, audit state transitions, review call/chat/order/scheduling/payment/onboarding flows, design durable fixes, or trace downstream repercussions and blast radius of proposed fixes through local code before implementation.
 ---
 
 # Gedankenexperiment
@@ -12,6 +12,8 @@ Use source-grounded mental simulation to find failures before patching. Scenario
 ## Operating Rule
 
 First mentally execute scenarios through the local code and collect failure modes. Then inspect the full failure set holistically and design durable invariant-level fixes. Implement only after that synthesis, and only when the user's task mode authorizes implementation.
+
+Every proposed fix must also be simulated as a new system behavior before implementation. If a fix changes or reinterprets state, statuses, enum values, API payloads, events, cache behavior, persistence, terminal semantics, permissions, timing, or UI-visible meaning, trace its downstream producers and consumers before accepting it.
 
 Every run ends with the [Final Report](#final-report-required-every-run): a single PASS/FAIL verdict, the issues identified, and a fixes rubric that maps each fix to the simulation issues it resolves. The report is required on every run, including analysis-only mode and runs where no fix is implemented.
 
@@ -62,6 +64,8 @@ Use stable IDs throughout:
 - `RC-001` for root-cause clusters
 - `INV-001` for invariants
 - `FIX-001` for fix strategies
+- `CC-001` for changed contracts introduced or reinterpreted by fixes
+- `FIFM-001` for fix-induced failure modes
 - `TST-001` for tests
 
 Update the ledger after each phase and before any long pause. Preserve traceability, for example: `FIX-001 enforces INV-001 and covers FM-003, FM-007, FM-011`.
@@ -174,7 +178,39 @@ Prefer fixes that centralize ownership: reducers, validators, schemas, state mac
 
 Reject fixes that add scenario-specific branches, patch one transcript, rely on prompts for code-owned invariants, duplicate state models, silently guess missing data, or make tests pass through exact phrasing.
 
-### 6. Post The Mental Simulation Report
+### 6. Simulate Proposed Fix Repercussions
+
+Treat each proposed `FIX-*` as a new scenario input, not as the end of the analysis. The fix is not acceptable until its repercussions are traced through the local code.
+
+Run this phase for every fix. It is mandatory when a fix touches or changes any of these contract surfaces:
+
+- State-machine transitions, terminal states, status sets, enum values, or persisted fields.
+- API request or response payloads, schema names, display outcomes, error codes, or fallback behavior.
+- Events, queues, webhooks, realtime messages, cache keys, cache invalidation, retries, or polling.
+- Permission, tenant, PHI/logging, audit, rate-limit, or auth boundaries.
+- UI-visible labels, filters, counts, sorting, grouping, badges, disabled states, or empty states.
+- External provider assumptions, timeout behavior, idempotency, ordering, or concurrency.
+
+For each changed or reinterpreted contract, assign `CC-*` and record:
+
+- Producer and ownership boundary.
+- Persistence or transport boundary.
+- Backend aggregators, normalizers, validators, and side-effect emitters.
+- API schemas and compatibility expectations.
+- Realtime, cache, polling, retry, and fallback consumers.
+- Frontend renderers, parsers, filters, sorters, counters, and copy.
+- Tenant, permission, PHI/logging, and audit implications.
+- Tests and docs needed to prove and explain the contract.
+
+For each downstream surface, ask:
+
+- What breaks if the new value or meaning arrives here today?
+- Does the existing code fail closed, mislabel, silently coerce, loop forever, over-count, under-count, leak data, or hide work?
+- Is this surface intentionally unaffected, and what source search or trace proves that no-impact claim?
+
+Record new issues as `FIFM-*` fix-induced failure modes. Do not merge them into earlier `FM-*` items unless the same root cause and evidence genuinely cover both. If a fix changes user-visible, API, persisted, event, cache, or status semantics, the final report must include a changed-contract inventory and consumer blast-radius matrix.
+
+### 7. Post The Mental Simulation Report
 
 Before implementation, or before stopping in analysis-only mode, post a compact but complete report. This is a required phase gate, not an optional summary.
 
@@ -186,6 +222,10 @@ The report must include:
 - Issues identified: a table of `FM-*` items with status, severity, evidence, and whether each is a confirmed defect, risk, intentional behavior, or unknown.
 - Root-cause clusters: `RC-*` items mapped to the failure modes they explain.
 - Fixes rubric: `FIX-*` items mapped to the exact `SCN-*` and `FM-*` items they address.
+- Changed contract inventory: `CC-*` items created or reinterpreted by proposed fixes.
+- Consumer blast-radius matrix: downstream producers/consumers affected by each `CC-*`.
+- Fix-induced failure modes: `FIFM-*` items found by simulating the fixes themselves.
+- No-impact claims: surfaces intentionally unaffected, with search or trace evidence.
 - Non-fixes rejected: notable tempting fixes rejected as band-aids, with reason.
 - Validation plan: `TST-*` or runtime checks mapped to the invariant and failure mode they prove.
 - Remaining unknowns: evidence that cannot be obtained from mental simulation alone.
@@ -215,6 +255,26 @@ Reason: SCN-003 exposes FM-001, a confirmed stale-state finalization defect at t
 | --- | --- | --- | --- | --- |
 | FIX-001 | SCN-003 | FM-001 | INV-001 | TST-001 fails before patch and passes after patch |
 
+### Changed Contract Inventory
+| Contract | Introduced/Reinterpreted By | Producer/Owner | Consumers | Required Handling |
+| --- | --- | --- | --- | --- |
+| CC-001 `status=EXAMPLE` | FIX-001 | `file.py::owner` | API, UI, cache, realtime | closed parser, label, count semantics |
+
+### Consumer Blast-radius Matrix
+| Contract | Surface | Current Behavior | Required Behavior | Evidence |
+| --- | --- | --- | --- | --- |
+| CC-001 | `frontend/file.tsx` | silently maps unknown to failed | render explicit label | `rg`, code trace |
+
+### Fix-induced Failure Modes
+| Issue | Caused By Fix | Classification | Severity | Evidence | Disposition |
+| --- | --- | --- | --- | --- | --- |
+| FIFM-001 | FIX-001 / CC-001 | Confirmed defect | High | downstream parser omits value | covered by FIX-002 |
+
+### No-impact Claims
+| Surface | Claim | Evidence |
+| --- | --- | --- |
+| Temporal workflow | unchanged replay behavior | no workflow file touched; terminal set already includes value |
+
 ### Non-Fixes Rejected
 | Rejected Approach | Reason |
 | --- | --- |
@@ -232,7 +292,7 @@ Verdict rules:
 
 The fixes rubric is mandatory even in analysis-only mode. If no fix is needed, include `FIX-000: no code change` and explain why.
 
-### 7. Use Multiple Agents When Useful
+### 8. Use Multiple Agents When Useful
 
 For large systems, consider independent passes if subagents are available and the task scope justifies it. Keep the main agent responsible for reconciliation and evidence.
 
@@ -247,13 +307,13 @@ Useful roles:
 
 Do not let subagents make findings authoritative without source references checked by the main agent.
 
-### 8. Implement And Validate
+### 9. Implement And Validate
 
 If implementation is authorized, make the smallest durable change that fixes the broadest confirmed failure class. Preserve existing architecture and remove obsolete conflicting logic when needed.
 
 Add or update tests at the real boundary where the invariant should hold. Distinguish unit-test evidence from integration, live-system, visual, audible, production, or end-to-end evidence.
 
-### 9. Report
+### 10. Report
 
 Always finish by posting the [Final Report](#final-report-required-every-run) below, whether or not any code was changed. In analysis-only mode the Implementation Appendix is omitted; otherwise it is filled in.
 
@@ -288,6 +348,40 @@ Score every proposed fix against the rubric and make the issue mapping explicit.
 A fix passes the rubric only when every column is satisfied. Do not list as a chosen fix any candidate that adds scenario-specific branches, patches one transcript, relies on prompts for code-owned invariants, duplicates state, guesses missing data, or makes tests pass through exact phrasing.
 
 End the rubric with a coverage line that ties fixes back to the issues, for example: `Coverage: FM-001..FM-008 all mapped; FM-005 won't-fix (needs runtime evidence)`.
+
+### Changed Contract Inventory
+
+List every `CC-*` state, status, enum value, API payload, event, cache behavior, persisted meaning, terminal semantic, permission rule, timing behavior, or UI-visible meaning introduced or reinterpreted by the proposed fixes.
+
+| Contract | Introduced/Reinterpreted By | Producer/Owner | Consumers | Required Handling |
+| --- | --- | --- | --- | --- |
+| CC-001 | FIX-001 | `file.py::owner` | API, UI, cache, realtime | ... |
+
+If no contracts changed, write `CC-000: no contract changes` and include source-search evidence.
+
+### Consumer Blast-radius Matrix
+
+Trace each changed contract through downstream consumers. Include backend and frontend surfaces that aggregate, normalize, validate, render, filter, sort, count, poll, subscribe, cache, retry, authorize, or log the new behavior.
+
+| Contract | Surface | Current Behavior | Required Behavior | Evidence |
+| --- | --- | --- | --- | --- |
+| CC-001 | `frontend/file.tsx` | ... | ... | `rg`, code trace |
+
+### Fix-induced Failure Modes
+
+List failures discovered by simulating the proposed fixes themselves.
+
+| Issue | Caused By Fix | Classification | Severity | Evidence | Disposition |
+| --- | --- | --- | --- | --- | --- |
+| FIFM-001 | FIX-001 / CC-001 | Confirmed defect | High | ... | covered by FIX-002 |
+
+### No-impact Claims
+
+For every plausible downstream surface that does not need a change, state the no-impact claim and the source-search or code-trace evidence. Do not omit a surface merely because it feels unrelated.
+
+| Surface | Claim | Evidence |
+| --- | --- | --- |
+| `service/file.py` | unaffected because ... | `rg` found no consumer; code path uses separate enum |
 
 ### Implementation Appendix (only when code was changed)
 
