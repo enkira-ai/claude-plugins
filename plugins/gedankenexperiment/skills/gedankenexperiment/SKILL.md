@@ -425,7 +425,7 @@ Always make the exact prompt text visible either inside the native choice body o
 
 3. **Request independent review** - use before implementation when the fix strategy is high-risk, cross-module, or likely to have hidden downstream impact. Name the report's riskiest root-cause, contract, and no-impact claims in the rationale.
    ```text
-   Review the gedankenexperiment report and proposed plan independently. Challenge the root-cause clusters, FIX-* coverage, CC-* blast radius, FIFM-* handling, no-impact claims, and validation plan. Do not modify code.
+   Review the gedankenexperiment report and proposed plan independently. Challenge the root-cause clusters, FIX-* coverage, CC-* blast radius, FIFM-* handling, no-impact claims, and validation plan. Do not modify code. End with Review Follow-up Options.
    ```
 
 4. **Implement approved plan** - use only when a concrete implementation plan already exists, or the human explicitly authorized implementation in the current prompt.
@@ -466,3 +466,34 @@ When rendering Markdown fallback, use this shape so Codex and Claude outputs sta
    Stop here. Treat the gedankenexperiment report as the current artifact of record.
    ```
 ````
+
+## Review Follow-up Options (Required After Independent Review)
+
+When the current task is an independent review of a gedankenexperiment report, proposed plan, or fix strategy, do not end with only recommendations. After the review findings, present a stable follow-up decision menu using the same native choice/question UI rules from Next Step Options. If native UI is unavailable, use Markdown fallback.
+
+Use these stable labels. Put review-specific findings in the rationale or prompt body, not in the option label.
+
+1. **Write revised implementation plan** - recommended when the review found blockers, ambiguity, missing downstream coverage, or test gaps in the current plan.
+   ```text
+   Write a revised implementation plan using the gedankenexperiment report and independent review above as sources of truth. Preserve every relevant FIX-*, CC-*, FIFM-*, TST-*, and review finding. Resolve the review blockers explicitly, cover downstream consumers and no-impact claims, and stop before modifying code.
+   ```
+
+2. **Deepen analysis** - use when the review exposed unresolved evidence gaps or uncertainty that should be traced before planning.
+   ```text
+   Run a focused gedankenexperiment pass on the review findings above, especially [review finding / FM / FIX / CC IDs]. Do not modify code. Expand the scenario traces, changed contracts, downstream consumers, no-impact evidence, and validation requirements.
+   ```
+
+3. **Request another independent review** - use when the review and original report conflict, or the remaining risk is cross-module/high-severity enough to merit a second read.
+   ```text
+   Independently review the gedankenexperiment report, current plan, and prior independent review. Focus on conflicts, unsupported assumptions, changed-contract coverage, fix-induced failure modes, and validation gaps. Do not modify code.
+   ```
+
+4. **Implement approved revised plan** - use only when a revised plan already exists and the human explicitly wants code changes now.
+   ```text
+   Implement the approved revised plan using superpowers:executing-plans or superpowers:subagent-driven-development if available. Preserve gedankenexperiment and review IDs in commits/tests. Stop and report if implementation reveals a new changed contract, downstream consumer, or fix-induced failure mode not covered by the plan.
+   ```
+
+5. **Stop at review** - use when the human wanted an independent read only or wants to decide later.
+   ```text
+   Stop here. Treat the gedankenexperiment report and independent review as the current artifacts of record.
+   ```

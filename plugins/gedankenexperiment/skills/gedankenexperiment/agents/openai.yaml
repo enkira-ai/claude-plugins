@@ -1,4 +1,4 @@
 interface:
   display_name: "Gedankenexperiment"
   short_description: "Source-grounded scenario and fix blast-radius analysis"
-  default_prompt: "Use $gedankenexperiment to mentally simulate this workflow from the local code, collect failure modes, trace fix repercussions, and end with stable next-step options."
+  default_prompt: "Use $gedankenexperiment to mentally simulate this workflow from local code, trace fix repercussions, and end with stable next-step or review follow-up options."
