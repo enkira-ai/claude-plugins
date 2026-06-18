@@ -1,6 +1,6 @@
 ---
 name: gedankenexperiment
-description: Use when asked to mentally simulate workflows, imagine realistic or adversarial scenarios, harden a system, find edge cases, audit state transitions, review call/chat/order/scheduling/payment/onboarding flows, design durable fixes, or trace downstream repercussions and blast radius of proposed fixes through local code before implementation.
+description: "Use when asked to mentally simulate workflows, imagine realistic or adversarial scenarios, harden a system, find edge cases, audit state transitions, review call/chat/order/scheduling/payment/onboarding flows, design durable fixes, trace downstream repercussions and blast radius of proposed fixes through local code before implementation, or decide what to do after a mental simulation report."
 ---
 
 # Gedankenexperiment
@@ -15,7 +15,7 @@ First mentally execute scenarios through the local code and collect failure mode
 
 Every proposed fix must also be simulated as a new system behavior before implementation. If a fix changes or reinterprets state, statuses, enum values, API payloads, events, cache behavior, persistence, terminal semantics, permissions, timing, or UI-visible meaning, trace its downstream producers and consumers before accepting it.
 
-Every run ends with the [Final Report](#final-report-required-every-run): a single PASS/FAIL verdict, the issues identified, and a fixes rubric that maps each fix to the simulation issues it resolves. The report is required on every run, including analysis-only mode and runs where no fix is implemented.
+Every run ends with the [Final Report](#final-report-required-every-run): a single PASS/FAIL verdict, the issues identified, and a fixes rubric that maps each fix to the simulation issues it resolves. The report is required on every run, including analysis-only mode and runs where no fix is implemented. After the report, present [Next Step Options](#next-step-options-required-after-the-final-report) so the human can choose the next phase without losing the report's phase boundary.
 
 ## Example Invocations
 
@@ -315,7 +315,7 @@ Add or update tests at the real boundary where the invariant should hold. Distin
 
 ### 10. Report
 
-Always finish by posting the [Final Report](#final-report-required-every-run) below, whether or not any code was changed. In analysis-only mode the Implementation Appendix is omitted; otherwise it is filled in.
+Always finish by posting the [Final Report](#final-report-required-every-run) below, whether or not any code was changed. In analysis-only mode the Implementation Appendix is omitted; otherwise it is filled in. Then append the [Next Step Options](#next-step-options-required-after-the-final-report).
 
 ## Final Report (Required Every Run)
 
@@ -393,3 +393,38 @@ Include only when implementation was authorized and performed:
 - Tests run and results, with red/green evidence
 - Evidence type (unit versus integration, live-system, visual, audible, production, or end-to-end)
 - Remaining validation gaps
+
+## Next Step Options (Required After The Final Report)
+
+After posting the Final Report, offer a short decision menu. This menu is a phase handoff, not part of the verdict, and it does not authorize code changes by itself. Preserve task-mode boundaries: if the report was analysis-only, implementation still requires the human to choose an implementation option or give explicit implementation authorization.
+
+Prefer the host runtime's native choice UI when it is available in the current client and mode. Keep native labels short, and include the exact prompt text in the surrounding message or fallback list so the human can inspect what will be run. If native choice UI is unavailable, limited, or would hide the prompt text, render the numbered Markdown list below. Never claim the options are clickable unless the runtime actually rendered native choices.
+
+Default options:
+
+1. **Write an implementation plan** - recommended when the report found confirmed defects or risks and there is not yet an approved plan.
+   ```text
+   Use the gedankenexperiment report above as the source of truth. Use superpowers:writing-plans if available. Write an implementation plan that preserves every FIX-*, CC-*, FIFM-*, and TST-* ID, covers downstream consumers and no-impact claims, and stops before modifying code.
+   ```
+
+2. **Deepen the analysis** - use when the report has important unknowns, thin evidence, or a risky `FIX-*`.
+   ```text
+   Run another gedankenexperiment pass on the report above, focused on [FM/FIX/CC/unknown IDs]. Do not modify code. Expand scenarios, downstream consumers, no-impact evidence, and validation requirements.
+   ```
+
+3. **Implement an approved plan** - use only when a concrete implementation plan already exists and the human wants code changes now.
+   ```text
+   Implement the approved plan using superpowers:executing-plans or superpowers:subagent-driven-development if available. Preserve the gedankenexperiment IDs in commits/tests. Stop and report if implementation reveals a new changed contract, downstream consumer, or fix-induced failure mode not covered by the plan.
+   ```
+
+4. **Request independent review** - use before implementation when the fix strategy is high-risk or cross-module.
+   ```text
+   Review the gedankenexperiment report and proposed plan independently. Challenge the root-cause clusters, FIX-* coverage, CC-* blast radius, FIFM-* handling, no-impact claims, and validation plan. Do not modify code.
+   ```
+
+5. **Stop at the report** - use when the human only wanted analysis or wants to decide later.
+   ```text
+   Stop here. Treat the gedankenexperiment report as the current artifact of record.
+   ```
+
+When a native choice UI supports fewer than all options, prioritize `Write an implementation plan`, `Deepen the analysis`, and `Stop at the report` unless the human already provided an approved plan; in that case include `Implement an approved plan` instead of `Deepen the analysis`.
