@@ -475,7 +475,7 @@ Use these stable labels. Put review-specific findings in the rationale or prompt
 
 1. **Write revised implementation plan** - recommended when the review found blockers, ambiguity, missing downstream coverage, or test gaps in the current plan.
    ```text
-   Write a revised implementation plan using the gedankenexperiment report and independent review above as sources of truth. Preserve every relevant FIX-*, CC-*, FIFM-*, TST-*, and review finding. Resolve the review blockers explicitly, cover downstream consumers and no-impact claims, and stop before modifying code.
+   Write a revised implementation plan using the gedankenexperiment report and independent review above as sources of truth. Use superpowers:writing-plans if available. Preserve every relevant FIX-*, CC-*, FIFM-*, TST-*, and review finding. Resolve the review blockers explicitly, cover downstream consumers and no-impact claims, and stop before modifying code.
    ```
 
 2. **Deepen analysis** - use when the review exposed unresolved evidence gaps or uncertainty that should be traced before planning.
