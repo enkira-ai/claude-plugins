@@ -1,6 +1,6 @@
 ---
 name: gedankenexperiment
-description: "Use when asked to mentally simulate workflows, imagine realistic or adversarial scenarios, harden a system, find edge cases, audit state transitions, review call/chat/order/scheduling/payment/onboarding flows, design durable fixes, trace downstream repercussions and blast radius of proposed fixes through local code before implementation, or decide what to do after a mental simulation report."
+description: "Use when asked to mentally simulate workflows, imagine realistic or adversarial scenarios, harden a system, find edge cases, audit state transitions or externally observable outputs, review call/chat/order/scheduling/payment/onboarding flows, design durable fixes, trace downstream repercussions and blast radius of proposed fixes through local code before implementation, or decide what to do after a mental simulation report."
 ---
 
 # Gedankenexperiment
@@ -14,6 +14,8 @@ Use source-grounded mental simulation to find failures before patching. Scenario
 First mentally execute scenarios through the local code and collect failure modes. Then inspect the full failure set holistically and design durable invariant-level fixes. Implement only after that synthesis, and only when the user's task mode authorizes implementation.
 
 Every proposed fix must also be simulated as a new system behavior before implementation. If a fix changes or reinterprets state, statuses, enum values, API payloads, events, cache behavior, persistence, terminal semantics, permissions, timing, or UI-visible meaning, trace its downstream producers and consumers before accepting it.
+
+Internal availability is not delivery. For every scenario with a user, operator, API client, external service, scheduled job, or downstream consumer, trace what that receiver actually observes. A field, policy, prompt instruction, config value, cached value, background context, or database row is not externally delivered unless local code proves it crosses the relevant output boundary.
 
 Every run ends with the [Final Report](#final-report-required-every-run): a single PASS/FAIL verdict, the issues identified, and a fixes rubric that maps each fix to the simulation issues it resolves. The report is required on every run, including analysis-only mode and runs where no fix is implemented. After the report, present [Next Step Options](#next-step-options-required-after-the-final-report) so the human can choose the next phase without losing the report's phase boundary.
 
@@ -64,6 +66,7 @@ Use stable IDs throughout:
 - `RC-001` for root-cause clusters
 - `INV-001` for invariants
 - `FIX-001` for fix strategies
+- `OUT-001` for externally observable output traces
 - `CC-001` for changed contracts introduced or reinterpreted by fixes
 - `FIFM-001` for fix-induced failure modes
 - `TST-001` for tests
@@ -79,6 +82,7 @@ When resuming, read the ledger first, verify current git status and relevant fil
 - Read applicable repository instructions.
 - Inspect current git status and preserve unrelated dirty work.
 - Identify the real runtime path, state owners, persistence boundaries, side-effect boundaries, and terminal states.
+- Identify externally observable output boundaries: API responses, UI render state, spoken/audio output, chat/email/SMS content, webhook/event payloads, files/exports, notifications, terminal statuses, logs or monitoring status intended for operators, and any other receiver-facing artifact.
 - Prefer local source code over docs. Use docs as intended behavior only after code behavior is clear.
 - If code and docs disagree, report the drift explicitly.
 - For long runs, create or resume the durable ledger before deep analysis.
@@ -118,7 +122,7 @@ For each generated scenario, assign an ID and record:
 
 Do not start by running the app, simulator, external workflows, deployments, or live systems unless the user explicitly asked for runtime execution.
 
-Imagine the scenario, but execute the system in your head from the local code. Walk the scenario step by step through the actual functions, calls, callbacks, reducers, state writes, validations, side effects, and terminal paths. The imagined part is the input sequence and timing; the system behavior must come from source code.
+Imagine the scenario, but execute the system in your head from the local code. Walk the scenario step by step through the actual functions, calls, callbacks, reducers, state writes, validations, side effects, output selection, and terminal paths. The imagined part is the input sequence and timing; the system behavior must come from source code.
 
 Use cause-and-effect reasoning:
 
@@ -135,6 +139,14 @@ Therefore the final state is S2, which is correct/incorrect because...
 
 Do not stop at "scenario might fail." Continue the mental trace until the workflow reaches a stable state, terminal state, explicit blocker, or contradiction. If the trace crosses async boundaries, queues, model outputs, callbacks, database writes, retries, or external side-effect wrappers, include those handoffs.
 
+For each scenario, build an observable output trace before judging pass/fail:
+
+- Assign `OUT-*` IDs to receiver-facing artifacts that matter to the scenario.
+- Trace source fields or policies -> transformation/selection owner -> output boundary -> actual emitted value or state.
+- Include the first observable output after major gates, handoffs, and accepted actions.
+- Mark internal-only material as not delivered until code proves it reaches the output boundary.
+- Treat "available internally but absent from required observable output" as a defect or explicit risk when it affects comprehension, correctness, safety, status, validation, or next-step behavior.
+
 For each scenario, record:
 
 - Scenario
@@ -143,6 +155,7 @@ For each scenario, record:
 - State before, intermediate state, and final state
 - Function calls and branch decisions that matter
 - Persistence, emitted events, external calls, or terminalization
+- Observable output trace, including intended-but-missing output fields or policies
 - Failure mode or ambiguity
 - Evidence with file/function references
 - Severity
@@ -154,6 +167,7 @@ Use the generated scenario inventory as the input set. Add more scenarios during
 Collect all confirmed and plausible failures before proposing fixes. Keep categories separate:
 
 - Confirmed defects proven from local code
+- Observable-output defects where the correct source field, state, policy, or instruction exists internally but does not reach the receiver-facing boundary
 - Risky or unclear behavior
 - Intentional behavior
 - Unknowns requiring runtime evidence
@@ -169,6 +183,7 @@ For each proposed fix, answer:
 - Which failure modes does this cover?
 - What invariant does it enforce?
 - Where is the correct ownership boundary?
+- Which observable output boundary should own the receiver-facing value, and what test proves the emitted artifact rather than merely proving internal context exists?
 - Why is this not a band-aid?
 - What existing logic does it replace or simplify?
 - What tests prove the invariant rather than one transcript or example?
@@ -188,13 +203,14 @@ Run this phase for every fix. It is mandatory when a fix touches or changes any 
 - API request or response payloads, schema names, display outcomes, error codes, or fallback behavior.
 - Events, queues, webhooks, realtime messages, cache keys, cache invalidation, retries, or polling.
 - Permission, tenant, PHI/logging, audit, rate-limit, or auth boundaries.
-- UI-visible labels, filters, counts, sorting, grouping, badges, disabled states, or empty states.
+- Externally observable content or state: UI-visible labels, spoken/audio text, chat/email/SMS bodies, files/exports, notifications, operator logs, filters, counts, sorting, grouping, badges, disabled states, or empty states.
 - External provider assumptions, timeout behavior, idempotency, ordering, or concurrency.
 
 For each changed or reinterpreted contract, assign `CC-*` and record:
 
 - Producer and ownership boundary.
 - Persistence or transport boundary.
+- Observable output boundary and actual receiver-facing value.
 - Backend aggregators, normalizers, validators, and side-effect emitters.
 - API schemas and compatibility expectations.
 - Realtime, cache, polling, retry, and fallback consumers.
@@ -219,6 +235,7 @@ The report must include:
 - Verdict: `PASS`, `FAIL`, or `PASS WITH RISKS`.
 - Verdict reason: one or two sentences grounded in the scenario matrix and failure bank.
 - Scenario coverage: a table of scenario IDs, outcome, severity, and linked failure IDs.
+- Observable output trace: a table of `OUT-*` items mapping source fields or policies to the actual output boundary and emitted value or missing output.
 - Issues identified: a table of `FM-*` items with status, severity, evidence, and whether each is a confirmed defect, risk, intentional behavior, or unknown.
 - Root-cause clusters: `RC-*` items mapped to the failure modes they explain.
 - Fixes rubric: `FIX-*` items mapped to the exact `SCN-*` and `FM-*` items they address.
@@ -230,59 +247,7 @@ The report must include:
 - Validation plan: `TST-*` or runtime checks mapped to the invariant and failure mode they prove.
 - Remaining unknowns: evidence that cannot be obtained from mental simulation alone.
 
-Use this minimum format:
-
-```markdown
-## Mental Simulation Report
-
-Verdict: FAIL
-
-Reason: SCN-003 exposes FM-001, a confirmed stale-state finalization defect at the state-machine boundary. Normal confirmation scenarios pass, but the flow is not safe under same-turn correction plus approval.
-
-### Scenario Outcomes
-| Scenario | Outcome | Severity | Issues |
-| --- | --- | --- | --- |
-| SCN-001 normal readback | PASS | Low | none |
-| SCN-003 correction plus approval | FAIL | High | FM-001 |
-
-### Issues Identified
-| Issue | Classification | Severity | Evidence | Fix |
-| --- | --- | --- | --- | --- |
-| FM-001 | Confirmed defect | High | `file.py:function` bypasses `next_task` after mutation | FIX-001 |
-
-### Fixes Rubric
-| Fix | Fixes Scenarios | Fixes Issues | Invariant | Acceptance Evidence |
-| --- | --- | --- | --- | --- |
-| FIX-001 | SCN-003 | FM-001 | INV-001 | TST-001 fails before patch and passes after patch |
-
-### Changed Contract Inventory
-| Contract | Introduced/Reinterpreted By | Producer/Owner | Consumers | Required Handling |
-| --- | --- | --- | --- | --- |
-| CC-001 `status=EXAMPLE` | FIX-001 | `file.py::owner` | API, UI, cache, realtime | closed parser, label, count semantics |
-
-### Consumer Blast-radius Matrix
-| Contract | Surface | Current Behavior | Required Behavior | Evidence |
-| --- | --- | --- | --- | --- |
-| CC-001 | `frontend/file.tsx` | silently maps unknown to failed | render explicit label | `rg`, code trace |
-
-### Fix-induced Failure Modes
-| Issue | Caused By Fix | Classification | Severity | Evidence | Disposition |
-| --- | --- | --- | --- | --- | --- |
-| FIFM-001 | FIX-001 / CC-001 | Confirmed defect | High | downstream parser omits value | covered by FIX-002 |
-
-### No-impact Claims
-| Surface | Claim | Evidence |
-| --- | --- | --- |
-| Temporal workflow | unchanged replay behavior | no workflow file touched; terminal set already includes value |
-
-### Non-Fixes Rejected
-| Rejected Approach | Reason |
-| --- | --- |
-| Prompt-only instruction | Code must own finalization gating |
-
-### Remaining Unknowns
-- Audible timing and barge-in behavior require simulator or live-call evidence.
-```
+Use the [Final Report](#final-report-required-every-run) format below. Do not omit scenario outcomes, observable output traces, fixes, changed contracts, consumer blast radius, no-impact claims, rejected non-fixes, validation, or unknowns.
 
 Verdict rules:
 
@@ -326,8 +291,17 @@ Post this report in the chat at the end of the simulation and synthesis phases, 
 State a single `PASS` or `FAIL` for the simulated flow, with a one-line justification.
 
 - `FAIL` if the failure-mode bank contains one or more **confirmed defects** proven from local code.
+- `FAIL` if a required externally observable output is absent, truncated, stale, misclassified, or misleading and local code proves the receiver would see that bad output.
 - `PASS` only if there are zero confirmed defects. Name any residual risks or unknowns that keep the pass conditional.
 - Report the count of confirmed defects and the highest severity among them, for example: `FAIL - 3 confirmed defects, max severity High`.
+
+### Observable Output Trace
+
+List every receiver-facing artifact that matters to the simulated scenarios. Do not count data as delivered merely because it exists in a prompt, config, cache, database row, background context, or internal state.
+
+| ID | Scenario | Receiver / Boundary | Source Field or Policy | Actual Output | Finding |
+| --- | --- | --- | --- | --- | --- |
+| OUT-001 | SCN-001 | API response / `router.py::handler` | `model.status` | `{"status":"running"}` | correct |
 
 ### Issues Identified
 
