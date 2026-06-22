@@ -226,7 +226,34 @@ For each downstream surface, ask:
 
 Record new issues as `FIFM-*` fix-induced failure modes. Do not merge them into earlier `FM-*` items unless the same root cause and evidence genuinely cover both. If a fix changes user-visible, API, persisted, event, cache, or status semantics, the final report must include a changed-contract inventory and consumer blast-radius matrix.
 
-### 7. Post The Mental Simulation Report
+### 7. Evidence And Scope Gate
+
+Before posting the Final Report, run this gate. Do not treat a report as complete until every item is satisfied or explicitly downgraded to an unknown.
+
+1. **Main-agent evidence only**
+   - Any finding, no-impact claim, or blast-radius claim derived from a subagent must be re-verified by the main agent with direct file/function/search evidence.
+   - Do not cite "Agent A/B/C trace" as final evidence. Replace it with concrete code references or mark the item as unverified.
+
+2. **Scenario matrix completeness**
+   - Every report must include a scenario coverage table, even when the causal trace is obvious.
+   - Each scenario must map to at least one `OUT-*`, `FM-*`, or `FIX-*`, or be explicitly marked as a no-finding scenario.
+
+3. **Fix scope classification**
+   - Classify every proposed fix as one of:
+     - `Required for reported defect`
+     - `Required to prevent fix-induced failure`
+     - `Architectural hardening`
+     - `Separate follow-up`
+   - Do not recommend bundling hardening fixes with the reported-defect fix unless omitting them creates a confirmed regression or fix-induced failure.
+
+4. **No-impact evidence floor**
+   - "Unaffected" claims require direct evidence: `rg` result, caller trace, schema/API boundary trace, or a specific reason the surface cannot consume the changed contract.
+   - If direct evidence is missing, downgrade the claim to `Unknown` and list the validation needed.
+
+5. **Implementation readiness**
+   - A fix is implementation-ready only when all confirmed defects are mapped to fixes, all changed contracts have consumer coverage, and every no-impact claim meets the evidence floor.
+
+### 8. Post The Mental Simulation Report
 
 Before implementation, or before stopping in analysis-only mode, post a compact but complete report. This is a required phase gate, not an optional summary.
 
@@ -257,7 +284,7 @@ Verdict rules:
 
 The fixes rubric is mandatory even in analysis-only mode. If no fix is needed, include `FIX-000: no code change` and explain why.
 
-### 8. Use Multiple Agents When Useful
+### 9. Use Multiple Agents When Useful
 
 For large systems, consider independent passes if subagents are available and the task scope justifies it. Keep the main agent responsible for reconciliation and evidence.
 
@@ -272,13 +299,13 @@ Useful roles:
 
 Do not let subagents make findings authoritative without source references checked by the main agent.
 
-### 9. Implement And Validate
+### 10. Implement And Validate
 
 If implementation is authorized, make the smallest durable change that fixes the broadest confirmed failure class. Preserve existing architecture and remove obsolete conflicting logic when needed.
 
 Add or update tests at the real boundary where the invariant should hold. Distinguish unit-test evidence from integration, live-system, visual, audible, production, or end-to-end evidence.
 
-### 10. Report
+### 11. Report
 
 Always finish by posting the [Final Report](#final-report-required-every-run) below, whether or not any code was changed. In analysis-only mode the Implementation Appendix is omitted; otherwise it is filled in. Then append the [Next Step Options](#next-step-options-required-after-the-final-report).
 
@@ -315,9 +342,9 @@ Summarize the failure-mode bank, one row per issue. Keep the categories from ste
 
 Score every proposed fix against the rubric and make the issue mapping explicit. **Each confirmed defect must be covered by at least one fix, or marked won't-fix with a reason - no confirmed defect may be left unmapped.**
 
-| Fix | Covers (FM / SCN) | Enforces (INV) | Ownership boundary | Not a band-aid (why) | Replaces / simplifies | Proof test (TST) | Duplicate-state risk |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| FIX-001 | FM-001, FM-007 | INV-001 | reducer | ... | ... | TST-001 | none |
+| Fix | Scope classification | Covers (FM / SCN) | Enforces (INV) | Ownership boundary | Not a band-aid (why) | Replaces / simplifies | Proof test (TST) | Duplicate-state risk |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| FIX-001 | Required for reported defect | FM-001, FM-007 | INV-001 | reducer | ... | ... | TST-001 | none |
 
 A fix passes the rubric only when every column is satisfied. Do not list as a chosen fix any candidate that adds scenario-specific branches, patches one transcript, relies on prompts for code-owned invariants, duplicates state, guesses missing data, or makes tests pass through exact phrasing.
 
