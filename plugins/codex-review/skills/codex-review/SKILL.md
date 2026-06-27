@@ -30,71 +30,110 @@ which codex && codex --version
 
 If missing: tell the user to install via `npm install -g @openai/codex` (or the equivalent for their setup) and stop.
 
+## Known CLI bug (all current versions)
+
+The `[PROMPT]` positional arg is rejected when combined with `--base`, `--uncommitted`, or `--commit`, even though the usage string shows it as valid. **Do not pass a prompt as a positional arg.** Use the wrapper script below instead.
+
+## Passing focus instructions — use the wrapper script
+
+A wrapper script lives alongside this skill:
+
+```
+SKILL_DIR/codex-focused-review.sh
+```
+
+where `SKILL_DIR` is the directory containing this `SKILL.md`. Always call it via its full path.
+
+The wrapper:
+1. Creates a uniquely-named Codex skill in `~/.agents/skills/review-<title>-<PID>/` scoped to this exact review
+2. Runs `codex review` (Codex auto-picks up the skill from that directory)
+3. Deletes the skill on exit — safe even if the review crashes
+
+**This is the correct way to pass focus instructions to Codex.** Do not manually create skill files or call `codex review` directly when a focus prompt is needed.
+
+### Wrapper usage
+
+```bash
+SKILL_DIR="$(dirname "$(realpath "$0")")"  # or hardcode the path
+
+# Branch diff with focus
+"$SKILL_DIR/codex-focused-review.sh" \
+  --base main \
+  --title "PR-123: auth refactor" \
+  --tail 300 \
+  "Focus on concurrency safety. Flag races, missing locks, unsafe shared state."
+
+# Specific commit with focus
+"$SKILL_DIR/codex-focused-review.sh" \
+  --commit abc1234 \
+  --title "fix: connection pool leak" \
+  "Focus on resource cleanup paths."
+
+# Uncommitted changes — no prompt needed (--uncommitted isn't supported by wrapper, use direct call below)
+codex review --uncommitted --title "<title>" 2>&1 | tail -200
+```
+
+The skill name is derived from `--title` + PID so concurrent reviews never collide.
+
 ## The three review modes
 
-Pick one based on what the user is reviewing:
+### A. Uncommitted changes
 
-### A. Uncommitted changes (most common)
-
-Reviews staged + unstaged + untracked files. Use for "review what I just did before I commit / open a PR".
+No focus prompt supported (CLI limitation applies here too). Call direct:
 
 ```bash
-codex review --uncommitted --title "<short title describing the change>"
+codex review --uncommitted --title "<short title>" 2>&1 | tail -200
 ```
 
-**Known limitation:** `--uncommitted` **cannot be combined with a custom [PROMPT]** — the CLI rejects it (`error: the argument '--uncommitted' cannot be used with [PROMPT]`). Use the default review prompt. If the user wants a targeted review ("focus on X"), switch to mode B (branch-based) which does accept a prompt.
+If the user wants a targeted review of uncommitted changes, ask them to commit or stash first so mode B can be used.
 
-### B. Branch diff (PR-style)
+### B. Branch diff (PR-style) — with or without focus
 
-Reviews the diff between the current branch and a base branch. Accepts a custom prompt — use this when the user wants Codex to focus on something specific.
-
+No focus:
 ```bash
-codex review --base main --title "<title>" "Focus on: (1) schema correctness, (2) API design smells, (3) unstated assumptions. Keep it concise, actionable, top issues not nitpicks."
+codex review --base main --title "<title>" 2>&1 | tail -200
 ```
 
-### C. Specific commit
-
-Reviews the diff introduced by a single commit SHA.
-
+With focus — use the wrapper:
 ```bash
-codex review --commit <SHA> --title "<title>" "Optional focus prompt."
+"$SKILL_DIR/codex-focused-review.sh" --base main --title "<title>" "<focus prompt>"
+```
+
+### C. Specific commit — with or without focus
+
+No focus:
+```bash
+codex review --commit <SHA> --title "<title>" 2>&1 | tail -200
+```
+
+With focus — use the wrapper:
+```bash
+"$SKILL_DIR/codex-focused-review.sh" --commit <SHA> --title "<title>" "<focus prompt>"
 ```
 
 ## Invocation pattern
 
-Use `Bash` with a generous timeout (Codex takes 30–120 seconds to think). Pipe through `tail -N` if the repo has many large files — Codex prints each file it reads before the verdict, and the review output itself lives at the end.
-
-```bash
-codex review --uncommitted --title "RFC-XXX: ..." 2>&1 | tail -200
-```
-
-For a big change set, `tail -300` or `tail -500` is safer. The actual review verdict + comments are the *last* block of output.
+Use `Bash` with a generous timeout (Codex takes 30–120 seconds). The review output lives at the end of stdout; `tail -200` is enough for most changes, `tail -400` for large diffs.
 
 ## Reading the output
 
-Codex outputs a prose summary first, then per-issue comments with a priority tag:
+Codex outputs a prose summary, then per-issue comments:
 
 - `[P0]` — ship-blocker / correctness bug
-- `[P1]` — significant issue, should fix before merge
-- `[P2]` — design or clarity issue, worth addressing
+- `[P1]` — significant issue, fix before merge
+- `[P2]` — design or clarity issue
 - `[P3]` — nit / stylistic
-
-Comments have the shape:
 
 ```
 - [P2] Short title — /absolute/path/to/file.ext:LINE_START-LINE_END
-  Explanation of the issue and suggested fix.
+  Explanation and suggested fix.
 ```
 
-Parse these and present them to the user as actionable items. Apply the user's judgment — Codex is a reviewer, not an authority. The file paths are absolute; trim to workspace-relative when reporting back.
+Trim absolute paths to workspace-relative when reporting back.
 
 ## Scope hygiene
 
-Codex will flag files it sees in the change set even if they're incidental (e.g. untracked lock files, stale build artifacts, session state). Before reporting findings:
-
-1. Check each flagged file against what the user actually authored in this change.
-2. Drop findings on **pre-existing untracked files** the user wasn't going to commit (e.g. `.claude/scheduled_tasks.lock`, `.env.local`, IDE cache dirs). Note them briefly in the summary ("codex also flagged X — ignored, pre-existing local state") so the user knows but isn't asked to act.
-3. Do not silently drop findings on files the user *did* author — those are legitimate even if out-of-scope for the current task.
+Drop findings on pre-existing untracked files the user didn't author (lock files, build artifacts, IDE cache). Note them briefly so the user knows. Never silently drop findings on files the user did write.
 
 ## Presenting findings
 
@@ -165,9 +204,11 @@ Never silently apply a codex fix — review comments are recommendations, and th
 
 ## Examples
 
-**Example — pre-PR RFC review:**
+**Default review before PR:**
 
-User: "Can you ask codex to review this RFC before I open the PR?"
+```bash
+codex review --base main --title "PR-45: auth refactor" 2>&1 | tail -200
+```
 
 Claude Code:
 1. `which codex && codex --version` → verify.
@@ -175,14 +216,36 @@ Claude Code:
 3. `codex review --uncommitted --title "RFC-XXX: short title" 2>&1 | tail -200`.
 4. Locate the open PR, post findings as inline review comments (with `suggestion` blocks where codex proposes a fix), then give a one-line verdict + review link in chat. If no PR, fall back to chat.
 
-**Example — targeted review:**
+**Focused review — concurrent-safe:**
 
-User: "Codex, focus on whether the migration is safe under concurrent writes."
+```bash
+"$SKILL_DIR/codex-focused-review.sh" \
+  --base main \
+  --title "PR-45: auth refactor" \
+  "Focus on whether the migration is safe under concurrent writes."
+```
+
+**Standing review focus (always applied, no cleanup needed):**
 
 Claude Code:
-1. Switch to branch mode: `codex review --base main --title "migration 0042 safety" "Focus exclusively on concurrency safety of the schema migration under live writes. Report: is this safe, and if not, what specifically breaks?" 2>&1 | tail -200`.
+1. Use the wrapper: `"$SKILL_DIR/codex-focused-review.sh" --base main --title "migration 0042 safety" "Focus on concurrency safety under live writes."`.
 2. Post findings on the branch's PR as inline comments; brief verdict + link in chat.
+
+**Standing review focus (always applied, no cleanup needed):**
+
+Create `~/.agents/skills/my-review-style/SKILL.md` once:
+
+```markdown
+---
+name: my-review-style
+description: Apply to all code reviews.
+---
+
+Always check: concurrency safety, resource cleanup, error propagation.
+```
+
+Codex picks it up automatically on every `codex review` run.
 
 ## Cost + rate notes
 
-Each `codex review` invocation is one Codex API call — free on the `codex` CLI's bundled plan, metered otherwise. Users with metered plans: mention this before invoking a second time on the same change. One review per major change is typical; spamming Codex on trivial diffs is wasteful.
+Each `codex review` is one Codex API call. One review per major change is typical; mention cost to users on metered plans before a second run on the same change.
