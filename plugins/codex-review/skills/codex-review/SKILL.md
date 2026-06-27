@@ -54,7 +54,9 @@ The wrapper:
 ### Wrapper usage
 
 ```bash
-SKILL_DIR="$(dirname "$(realpath "$0")")"  # or hardcode the path
+# SKILL_DIR is provided in the skill header when this skill loads ("Base directory for this skill: …").
+# Use that path directly — do not derive it from $0.
+SKILL_DIR="/path/to/plugins/codex-review/skills/codex-review"
 
 # Branch diff with focus
 "$SKILL_DIR/codex-focused-review.sh" \
@@ -85,7 +87,7 @@ No focus prompt supported (CLI limitation applies here too). Call direct:
 codex review --uncommitted --title "<short title>" 2>&1 | tail -200
 ```
 
-If the user wants a targeted review of uncommitted changes, ask them to commit or stash first so mode B can be used.
+If the user wants a focused review of uncommitted changes, ask them to make a temporary WIP commit first (`git commit -m "wip"`) so mode B (`--base`) can diff against it. Do not suggest stashing — that removes the very changes being reviewed.
 
 ### B. Branch diff (PR-style) — with or without focus
 
