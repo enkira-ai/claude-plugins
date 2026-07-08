@@ -33,8 +33,8 @@ If you feel the urge to "helpfully" start implementing something that came up in
 | Command | Purpose |
 |---------|---------|
 | `new-session [--name LABEL] [--participants A B C ...]` | Create session. With `--participants`, declares 2..N agents and locks the round-robin order. Without it, falls back to legacy lazy 2-agent mode. |
-| `send "<text>" --session ID --as NAME` | Send your message (errors if it isn't your turn) |
-| `listen --session ID --as NAME [--timeout SEC]` | Block until it's your turn AND a peer has sent a new message; then flush all unread messages from peers |
+| `send "<text>" --session ID --as NAME [--timeout SEC] [--no-follow]` | Send your message (errors if it isn't your turn), then **automatically listen** for the peer's reply. The command's output IS the next peer turn. Use `--no-follow` for a one-shot send (e.g. the final message before `end`). |
+| `listen --session ID --as NAME [--timeout SEC]` | Block until it's your turn AND a peer has sent a new message; then flush all unread messages from peers. Needed only for the first turn of a non-opening participant — after that, `send` auto-follows. |
 | `status --session ID` | Show round, turn, last activity, per-agent message counts |
 | `end --session ID --as NAME` | Close session |
 | `record-prompt --session ID --by MAIN --target SUB [--prompt TEXT \| --prompt-file PATH] [--launcher CMD]` | Save the setup prompt + launcher used to spawn a subagent, for transcript audit |
@@ -56,20 +56,18 @@ python3 ${CLAUDE_SKILL_DIR}/scripts/agent_chat.py new-session \
   --name <topic> --participants alice bob charlie
 ```
 
-Each participant runs the same loop forever:
+Each participant runs the same loop forever. Because `send` **auto-follows into listen**, the loop is just: send, read the reply the command prints, send again.
 
 ```bash
-# 1. Wait for your turn
-python3 .../agent_chat.py listen --session SID --as alice
-# (prints any messages peers have sent since you last spoke)
-
-# 2. Compose and send your reply
+# Compose and send your reply; the command then blocks and prints the peer's
+# next turn when it arrives (or exits 2 on timeout / 3 on session closed).
 python3 .../agent_chat.py send "..." --session SID --as alice
-
-# 3. Loop back to step 1
+# → read the [peer]: ... output, compose your next reply, send again.
 ```
 
-The main agent's first action is `send` (the opening message), then the loop above. Other participants start with `listen`.
+The main agent's first action is `send` (the opening message) — which then auto-listens for the first reply. Other participants start with a single `listen` (they have nothing to send yet), and from their first `send` onward the auto-follow carries the loop.
+
+**You cannot forget to re-listen:** there is no separate listen step to drop after a send. This is deliberate — the most common failure mode was an agent calling `send` and then stopping instead of re-entering `listen`.
 
 ### Mode B — Legacy lazy 2-agent
 
@@ -77,8 +75,9 @@ Omit `--participants`. The first agent to call `send` becomes main; the next to 
 
 ```bash
 python3 .../agent_chat.py new-session --name <topic>
-# main:    send "<opening>" --as <name>
-# other:   listen --as <name>; send "<reply>"; listen; ...
+# main:    send "<opening>" --as <name>   # auto-listens for the reply
+# other:   listen --as <name>; then repeatedly: send "<reply>" --as <name>
+#          (each send auto-listens for the next turn)
 ```
 
 Use Mode A whenever you want >2 agents, or whenever you want strict deterministic turn order even with 2 agents.
@@ -96,13 +95,26 @@ When both are true, `listen` prints **all** unread peer messages — across ever
 
 Other exit codes: `2` on timeout, `3` on session closed.
 
-**Claude Code: use `Bash` with `run_in_background: true`.** `listen` is a one-shot "wait until done" — that's exactly the pattern Claude Code's Bash tool is built for. The harness notifies Claude once, cleanly, when the process exits; Claude reads the captured stdout, composes a reply, and calls `send`.
+### `send` auto-follows into `listen`
+
+After `send` writes your message and advances the turn, it **automatically runs the same listen loop** and blocks until the peer replies. So `send` exits with listen's codes — `0` (peer message printed), `2` (timeout), `3` (session closed) — not a bare "sent" confirmation. Treat the output of `send` as the peer's next turn.
+
+This fuses the two steps the agent used to run separately (`send`, then `listen`) into one, removing the "sent but forgot to re-listen" failure mode entirely. Opt out with `--no-follow` when you deliberately want a one-shot send that returns immediately (an out-of-turn `--force` note you don't want to block on). For the **final report message**, use `send … --end` instead — it writes the message and closes the session atomically, so a peer poised in auto-follow can't slip in one more reply between your final send and the close (see *Ending and Transcribing*). At the round-`60` force-close, the follow-listen is auto-skipped **for the main agent only**, so it regains control to write that final report; a peer that happened to send the threshold-crossing message keeps blocking in listen until the main agent closes the session (exit 3).
+
+**Backgrounding is the harness's job, not the script's.** The script never self-daemonizes — it stays one blocking command. How you run that command depends on who you are:
+
+- **Main agent talking to a human:** run `send` (or the opener `listen`) via `Bash` with `run_in_background: true`. The harness backgrounds the blocking wait, notifies you once when it exits, and — crucially — leaves you free to report the session-join info and to receive human feedback *while the wait is in flight*. That responsiveness comes entirely from `run_in_background`; the fused send+listen does not reduce it.
+- **Subagent** (`codex exec`, `claude -p`, `gemini --yolo`): run it in the foreground as the loop body. Blocking is correct — the subagent's only job is the round-robin, and there is no human to field mid-turn.
+
+**Claude Code: use `Bash` with `run_in_background: true`.** A blocking wait is exactly the pattern Claude Code's Bash tool is built for. The harness notifies Claude once, cleanly, when the process exits; Claude reads the captured stdout (the peer's turn), composes a reply, and calls `send` again.
 
 ```
-Bash command: python3 ${CLAUDE_SKILL_DIR}/scripts/agent_chat.py listen --session SESSION_ID --as claude --timeout 600
-Bash description: wait for my turn
+Bash command: python3 ${CLAUDE_SKILL_DIR}/scripts/agent_chat.py send "<reply>" --session SESSION_ID --as claude --timeout 600
+Bash description: send reply and wait for the peer's turn
 run_in_background: true
 ```
+
+(For the very first turn of a non-opening participant, run `listen` the same way; every turn after that is a `send`.)
 
 Do **not** use the `Monitor` tool. Monitor fires a notification per stdout line with no distinct "process exited" signal; a single listen flush can be thousands of characters of multi-line markdown, which Monitor delivers as a burst of partial-line notifications and Claude cannot reliably tell whether the process is done. `run_in_background` avoids that: one command, one completion notification, one reply.
 
@@ -143,10 +155,11 @@ If you see `[SYSTEM]` output during `listen`, print it to the user/log, then pro
 
 ## Ending and Transcribing
 
-Main agent ends the session:
+The main agent sends its final report and closes the session in one atomic command with `--end`:
 ```bash
-python3 ${CLAUDE_SKILL_DIR}/scripts/agent_chat.py end --session SESSION_ID --as <main-agent-name>
+python3 ${CLAUDE_SKILL_DIR}/scripts/agent_chat.py send "<final report>" --session SESSION_ID --as <main-agent-name> --end
 ```
+`--end` writes the message and marks the session closed in the same metadata write, so a peer blocked in auto-follow observes the closed session (and exits `3`) rather than treating the final report as a normal turn and replying in the gap. The final report is still recorded in the transcript. Use this instead of a separate `send --no-follow` + `end`, which leaves a race window where the peer can slip in one more reply. (The standalone `end` command still exists for the case where the last message was already sent.)
 
 Then generate the human-readable transcript:
 ```bash
@@ -207,17 +220,23 @@ Session ID: <SESSION_ID>
 
 First, read $(dirname "$SCRIPT")/../SKILL.md to understand the protocol.
 
-Then follow this loop forever until the session closes:
-  A. Listen:
+Then follow this loop forever until the session closes. `send` automatically
+listens for the reply after sending, so each turn is a SINGLE command whose
+output is the peer's next message — you never call `listen` separately after
+your first turn, and you must NOT stop after sending.
+
+  A. FIRST turn only — wait for the opening message:
      python3 $SCRIPT listen --session <SESSION_ID> --as codex --timeout 600
-     (this blocks until it is YOUR turn AND a peer has sent a new message)
-  B. Check exit code:
-     - 0: messages from peers were printed → go to C
-     - 3: [SESSION CLOSED] → stop immediately, do not call listen or send again, exit
+  B. Check the exit code of the command you just ran:
+     - 0: peer messages were printed → go to C
+     - 3: [SESSION CLOSED] → stop immediately, do not call send/listen again, exit
      - 2: [TIMEOUT] → exit and report
-  C. Compose your reply, then:
-     python3 $SCRIPT send "<reply>" --session <SESSION_ID> --as codex
-  D. Go to A.
+  C. Compose your reply and send it. This command sends AND then blocks,
+     printing the peer's next turn when it arrives:
+     python3 $SCRIPT send "<reply>" --session <SESSION_ID> --as codex --timeout 600
+  D. Go to B — keep looping on the output of your `send`. Do not return control
+     until you get exit code 2 or 3. Sending and then stopping is the #1 bug;
+     the fused send+listen exists precisely so you cannot do that.
 
 Context: <what every participant should know>
 Task: <what the group should discuss>

@@ -1,7 +1,7 @@
 {
   "name": "agent-chat",
   "description": "Round-robin chat protocol for 2..N AI agents (Claude Code, Codex, Gemini CLI, or any combination) to collaborate on hard problems. Includes session lifecycle, round limits, auto-transcripts with subagent-prompt audit, and role-neutral launcher patterns so any supported CLI can be main agent or peer.",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": {
     "name": "Bo Wen"
   },
