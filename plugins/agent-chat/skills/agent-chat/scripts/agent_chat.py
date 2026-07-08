@@ -329,6 +329,18 @@ def cmd_send(args):
 
     print(f"[agent_chat] Sent (round {current_round}, seq {seq}, turn → {meta['whose_turn']})")
 
+    # Auto-follow into the listen loop so the caller cannot forget to re-listen.
+    # This fuses send+listen into one step: the command's output IS the peer's
+    # next message, exiting with listen's codes (0 message / 2 timeout / 3 closed).
+    # Opt out with --no-follow for a one-shot send or the final message before
+    # `end`. Skip automatically once the session is closing so the main agent
+    # can write its final report and close.
+    if getattr(args, "no_follow", False):
+        return
+    if meta["status"] in ("ended", "force_ended", "force_ending"):
+        return
+    cmd_listen(args)
+
 
 def cmd_listen(args):
     sessions_dir = get_sessions_dir()
@@ -634,11 +646,16 @@ def main():
              "Omit for legacy lazy 2-agent mode.",
     )
 
-    sp = sub.add_parser("send", help="Send a message")
+    sp = sub.add_parser("send", help="Send a message, then auto-listen for the reply")
     sp.add_argument("message")
     sp.add_argument("--session", required=True)
     sp.add_argument("--as", dest="as_agent", required=True, metavar="AGENT")
     sp.add_argument("--force", action="store_true", help="Send even if not your turn")
+    sp.add_argument("--no-follow", dest="no_follow", action="store_true",
+                    help="Do not auto-listen after sending (one-shot send; use for the "
+                         "final message before `end`)")
+    sp.add_argument("--timeout", type=int, default=DEFAULT_LISTEN_TIMEOUT, metavar="SEC",
+                    help=f"Follow-listen timeout in seconds (default {DEFAULT_LISTEN_TIMEOUT})")
 
     sp = sub.add_parser("listen", help="Block until it's your turn AND a peer has sent a new message")
     sp.add_argument("--session", required=True)
