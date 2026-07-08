@@ -1,0 +1,9 @@
+{
+  "name": "voice-stack-mcps",
+  "description": "Set up docs & API MCP servers for our voice/telephony stack (Telnyx docs + API-actions, LiveKit docs, Pipecat Context Hub) across both Claude Code and Codex CLI. Onboards a teammate's coding agent to first-party vendor docs; asks before adding the write-capable Telnyx API server.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Enkira AI"
+  },
+  "skills": "./skills/"
+}
