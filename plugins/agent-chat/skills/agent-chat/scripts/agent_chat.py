@@ -333,11 +333,17 @@ def cmd_send(args):
     # This fuses send+listen into one step: the command's output IS the peer's
     # next message, exiting with listen's codes (0 message / 2 timeout / 3 closed).
     # Opt out with --no-follow for a one-shot send or the final message before
-    # `end`. Skip automatically once the session is closing so the main agent
-    # can write its final report and close.
+    # `end`.
     if getattr(args, "no_follow", False):
         return
-    if meta["status"] in ("ended", "force_ended", "force_ending"):
+    if meta["status"] in ("ended", "force_ended"):
+        return
+    # At the round-limit force-close, only the MAIN agent skips the follow so it
+    # can write its final report and call `end`. A peer that happened to send the
+    # threshold-crossing message must still follow-listen — it is now the main
+    # agent's turn, so re-sending would fail turn enforcement; instead it waits
+    # for the final report and the session close (exit 3).
+    if meta["status"] == "force_ending" and agent == meta["main_agent"]:
         return
     cmd_listen(args)
 

@@ -47,9 +47,20 @@ def main() -> int:
              "--as", "b", "--timeout", "12"],
             cwd=d, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         )
-        # Give b time to send and enter its follow-listen.
+        # Wait until b has sent (turn advances to a) rather than sleeping a fixed
+        # amount — avoids flakiness on slow CI.
+        import json
         import time
-        time.sleep(2)
+        meta_path = Path(d) / ".agent_chat" / "sessions" / sid / "metadata.json"
+        for _ in range(200):
+            try:
+                if json.loads(meta_path.read_text()).get("whose_turn") == "a":
+                    break
+            except (OSError, ValueError):
+                pass
+            time.sleep(0.05)
+        else:
+            raise AssertionError("timed out waiting for b to send")
         r = run(["send", "from-a", "--session", sid, "--as", "a", "--timeout", "3"], d)
         assert r.returncode == 2, f"expected follow-timeout exit 2, got {r.returncode}"
         assert "[TIMEOUT]" in r.stdout, r.stdout
