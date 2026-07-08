@@ -325,9 +325,22 @@ def cmd_send(args):
         next_idx = (idx + 1) % len(agents)
         meta["whose_turn"] = agents[next_idx]
     meta["last_activity"] = now_ts()
+    if getattr(args, "end", False):
+        # Close the session in the SAME metadata write that advances the turn,
+        # so a peer blocked in auto-follow never observes "my turn + open
+        # session" and cannot squeeze in a reply after this final message.
+        # (cmd_listen checks status before flushing messages, so the peer exits
+        # 3 cleanly; the final message is still recorded in the transcript.)
+        meta["status"] = "ended"
+        meta["ended"] = now_ts()
+        meta["ended_by"] = agent
     save_meta(session_path, meta)
 
     print(f"[agent_chat] Sent (round {current_round}, seq {seq}, turn → {meta['whose_turn']})")
+
+    if getattr(args, "end", False):
+        print(f"[agent_chat] Session ended by {agent}.")
+        return
 
     # Auto-follow into the listen loop so the caller cannot forget to re-listen.
     # This fuses send+listen into one step: the command's output IS the peer's
@@ -658,8 +671,11 @@ def main():
     sp.add_argument("--as", dest="as_agent", required=True, metavar="AGENT")
     sp.add_argument("--force", action="store_true", help="Send even if not your turn")
     sp.add_argument("--no-follow", dest="no_follow", action="store_true",
-                    help="Do not auto-listen after sending (one-shot send; use for the "
-                         "final message before `end`)")
+                    help="Do not auto-listen after sending (one-shot send)")
+    sp.add_argument("--end", action="store_true",
+                    help="Close the session atomically after sending (use for the final "
+                         "report message; replaces a separate `end` and avoids a peer "
+                         "replying in the gap between the final send and end)")
     sp.add_argument("--timeout", type=int, default=DEFAULT_LISTEN_TIMEOUT, metavar="SEC",
                     help=f"Follow-listen timeout in seconds (default {DEFAULT_LISTEN_TIMEOUT})")
 

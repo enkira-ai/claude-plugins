@@ -99,7 +99,7 @@ Other exit codes: `2` on timeout, `3` on session closed.
 
 After `send` writes your message and advances the turn, it **automatically runs the same listen loop** and blocks until the peer replies. So `send` exits with listen's codes — `0` (peer message printed), `2` (timeout), `3` (session closed) — not a bare "sent" confirmation. Treat the output of `send` as the peer's next turn.
 
-This fuses the two steps the agent used to run separately (`send`, then `listen`) into one, removing the "sent but forgot to re-listen" failure mode entirely. Opt out with `--no-follow` when you deliberately want a one-shot send that returns immediately (the final report message before `end`, or an out-of-turn `--force` note you don't want to block on). The follow-listen is also skipped automatically once the session is `force_ending`/closed, so the main agent regains control to write its final report and call `end`.
+This fuses the two steps the agent used to run separately (`send`, then `listen`) into one, removing the "sent but forgot to re-listen" failure mode entirely. Opt out with `--no-follow` when you deliberately want a one-shot send that returns immediately (an out-of-turn `--force` note you don't want to block on). For the **final report message**, use `send … --end` instead — it writes the message and closes the session atomically, so a peer poised in auto-follow can't slip in one more reply between your final send and the close (see *Ending and Transcribing*). At the round-`60` force-close, the follow-listen is auto-skipped **for the main agent only**, so it regains control to write that final report; a peer that happened to send the threshold-crossing message keeps blocking in listen until the main agent closes the session (exit 3).
 
 **Backgrounding is the harness's job, not the script's.** The script never self-daemonizes — it stays one blocking command. How you run that command depends on who you are:
 
@@ -155,12 +155,11 @@ If you see `[SYSTEM]` output during `listen`, print it to the user/log, then pro
 
 ## Ending and Transcribing
 
-When the main agent sends its final report message, pass `--no-follow` so the send returns immediately instead of blocking on a reply that will never come, then call `end`:
+The main agent sends its final report and closes the session in one atomic command with `--end`:
 ```bash
-python3 ${CLAUDE_SKILL_DIR}/scripts/agent_chat.py send "<final report>" --session SESSION_ID --as <main-agent-name> --no-follow
-python3 ${CLAUDE_SKILL_DIR}/scripts/agent_chat.py end --session SESSION_ID --as <main-agent-name>
+python3 ${CLAUDE_SKILL_DIR}/scripts/agent_chat.py send "<final report>" --session SESSION_ID --as <main-agent-name> --end
 ```
-(A send that crosses the round-`60` force-close threshold sets the session to `force_ending` and auto-skips the follow-listen, so `--no-follow` is belt-and-suspenders there — but always use it for the deliberate final message.)
+`--end` writes the message and marks the session closed in the same metadata write, so a peer blocked in auto-follow observes the closed session (and exits `3`) rather than treating the final report as a normal turn and replying in the gap. The final report is still recorded in the transcript. Use this instead of a separate `send --no-follow` + `end`, which leaves a race window where the peer can slip in one more reply. (The standalone `end` command still exists for the case where the last message was already sent.)
 
 Then generate the human-readable transcript:
 ```bash
