@@ -39,8 +39,10 @@ uvx pipecat-ai-context-hub@latest refresh        # ~2 min first run
 claude mcp add --scope user pipecat-context-hub -- uvx pipecat-ai-context-hub serve
 
 # API-actions server — ONLY after confirming with the user (see Telnyx API key below)
-claude mcp add --scope user --transport http telnyx-api https://api.telnyx.com/v2/mcp \
-  --header 'Authorization: Bearer ${TELNYX_API_KEY}'
+# Keep options (--header etc.) before the positional name + url.
+claude mcp add --scope user --transport http \
+  --header 'Authorization: Bearer ${TELNYX_API_KEY}' \
+  telnyx-api https://api.telnyx.com/v2/mcp
 ```
 
 Use **single quotes** around the header so the literal `${TELNYX_API_KEY}` is stored — Claude
