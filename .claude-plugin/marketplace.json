@@ -304,7 +304,7 @@
       "name": "pr-shepherd",
       "source": "./plugins/pr-shepherd",
       "description": "Shepherd one or an ordered sequence of open PRs all the way to merge \u2014 drain every review thread (reply inline, then resolve, as a fixpoint), wait out CI on a hardened observe-only poll loop, run the test plan, then auto-merge on a fully green gate. For a sequence, rebases each later PR onto the freshly-merged main so stacked PRs never collide. The merging counterpart to autopilot.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "author": {
         "name": "Enkira AI"
       },

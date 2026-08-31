@@ -225,9 +225,18 @@ input to triage, not a gate.
 Check it, cheaply:
 
 ```bash
-# does anything outside the new package import it yet?
-grep -rn "from <pkg> import\|import <pkg>" --include=*.py . | grep -v "^<pkg>/"
+# does any NON-TEST code outside the new package import it yet?
+grep -rn --include='*.py' --exclude-dir='<pkg-dir-name>' \
+     -e 'from <pkg>' -e 'import <pkg>' <source-root>/
 ```
+
+Two details that decide whether this answers the right question. Search the
+**source root** (`src/`, the package dir), not `.` — a test importing a module
+is not the same as production code wiring it up, and including `tests/` turns
+every new package into a false "it has consumers". And exclude the package by
+**directory**, not by filtering the output on a path prefix: GNU grep prefixes
+recursive matches with `./`, so a `grep -v "^<pkg>/"` filter silently keeps the
+package's own internal imports and reports a consumer that does not exist.
 
 If nothing consumes it, the module is a seam for a later item. Defensive
 hardening there is speculation: the first real consumer, running against the
