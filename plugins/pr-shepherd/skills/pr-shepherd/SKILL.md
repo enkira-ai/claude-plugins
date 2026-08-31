@@ -199,10 +199,65 @@ RFC/spec:
 | **Trivial nit** — typo, import order, a doc word, ≤3 lines in one file | Fix it inline yourself, commit, push. |
 | **Real fix** — logic, schema, a test gap, anything multi-line or non-obvious | Fix it, run local tests, commit, push. |
 | **Wrong / out-of-scope** — contradicts an explicit RFC decision, or is incorrect | Do NOT change code. Draft a reasoned reply that quotes the RFC section. |
+| **Correct but beyond the issue** — true, but hardens behaviour the issue does not ask for, usually on a code path this PR does not wire up | Do NOT change code. Reply acknowledging it and say where it belongs; file a follow-up issue if it has standalone value. |
+
+That fourth row is the one that gets skipped, because the finding is *right*.
+Correctness is not the test — scope is. See §1.3.1.
 
 If the user is running a separate implementer agent for this PR (e.g. the
 rfc-loop held-implementer pattern), route real fixes there instead of editing
 yourself — but you still own every reply and every resolve.
+
+### 1.3.1 — Scope discipline and the stopping rule
+
+An LLM reviewer reads the diff in isolation, with no knowledge of the issue's
+scope, what the module is for, or whether anything calls it. It will therefore
+generate correct, plausible, unbounded hardening suggestions for as long as you
+keep asking. **Left unchecked this is the single biggest way a shepherd run
+turns a small PR into a large one.** Apply these before writing any code.
+
+**The merge bar is the issue's acceptance criteria — not the absence of bot
+findings.** Re-read them at the top of every round. Once they are met, CI is
+green and threads are drained, that is a complete PR; further findings are
+input to triage, not a gate.
+
+**A finding must name a failure reachable from code this PR actually wires up.**
+Check it, cheaply:
+
+```bash
+# does anything outside the new package import it yet?
+grep -rn "from <pkg> import\|import <pkg>" --include=*.py . | grep -v "^<pkg>/"
+```
+
+If nothing consumes it, the module is a seam for a later item. Defensive
+hardening there is speculation: the first real consumer, running against the
+real service, is a stronger test than any reviewer's imagination. Reply, name
+the consuming issue, resolve.
+
+**Never widen an interface to satisfy a review comment.** Adding a config
+field, an allowlist entry, a supported format or a new code path to close a
+thread creates surface that produces the *next* finding. If a fix requires new
+public API, that is a signal the finding is out of scope, not that the API was
+missing.
+
+**Never add a value you have not verified** against a spec, the vendor's docs,
+or a run. A plausible-looking constant is a defect waiting to be found, and a
+test that asserts your own assumption proves nothing — it only makes the
+assumption look checked.
+
+**Track the regression rate, and say it out loud.** Keep a count of rounds
+whose findings were defects *introduced by a previous round's fix*. When that
+approaches half, stop: you are adding surface faster than review removes it.
+
+**Round budget.** After **3** rounds on one PR, report to the user: rounds so
+far, the regression count, acceptance-criteria status, and a merge/continue
+recommendation. Do not exceed **5** without an explicit instruction to keep
+going. "The bot found something" is not a reason to continue; "the acceptance
+criteria are not met" is.
+
+**When you do stop,** say so in the approval or merge message — which criteria
+are met, what you deliberately left, and where it belongs. A future reader
+should not have to re-derive why the loop ended.
 
 **Step C — apply fixes on the PR branch.**
 
@@ -479,6 +534,13 @@ run leaves a readable trail.
   applies — without asking.
 - Verify the linked issue closed after merge.
 - Read CI logs before acting on a failure.
+- Re-read the issue's acceptance criteria at the top of every review round, and
+  treat them — not the bot's silence — as the merge bar.
+- Run the **CI interpreter version** locally before pushing a fix, not just your
+  default one. Async and timing behaviour differs between versions, and a green
+  local run on the wrong interpreter is how a red CI arrives as a surprise.
+- Count rounds, and count how many of them fixed a defect a previous round
+  introduced. Report both when you check in.
 
 ### DO NOT
 - **NEVER merge over a hard stop** — human `CHANGES_REQUESTED`, draft,
@@ -495,7 +557,16 @@ run leaves a readable trail.
 - **NEVER run paid e2e / integration suites** just because they appear in a
   test plan — skip with a note.
 - **NEVER let a reviewer suggestion pull the PR outside its RFC scope** — reply
-  with the reasoning and resolve; do not implement scope creep.
+  with the reasoning and resolve; do not implement scope creep. This applies to
+  findings that are entirely **correct**: in-scope is a separate test from
+  right, and a true finding about an unreachable path is still scope creep.
+- **NEVER treat "the reviewer has no more findings" as the merge condition.**
+  An LLM reviewer can always find another P2 in non-trivial concurrent code.
+  The acceptance criteria terminate the loop; the bot does not.
+- **NEVER add a code path, config field or allowlist entry that no caller
+  exercises** in order to close a review thread.
+- **NEVER guess a value** — a MIME type, a timeout, a protocol constant —
+  without checking the spec or the vendor's docs in the same turn.
 
 ## When stuck
 
