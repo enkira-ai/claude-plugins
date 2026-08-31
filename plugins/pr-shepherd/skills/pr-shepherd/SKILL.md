@@ -248,8 +248,16 @@ reaches code without importing it from this repository:
   downstream users and there is nothing local to find
 - the linked issue naming an external consumer explicitly
 
-If any of those apply, the path **is** reachable and a finding on it is a real
-fix. Only when the module is internal *and* nothing consumes it is it a seam
+If any of those apply the path is reachable — which settles only that the
+finding is **not** speculation. It does not make it in scope. Reachability is
+a prerequisite for the triage, not a substitute for it: go on and compare the
+claimed failure against the issue's acceptance criteria, and a correct finding
+about a reachable path that no criterion asks for is still the "Correct but
+beyond the issue" row. Otherwise every public API, console script and entry
+point becomes unboundedly hardenable — the outcome this section exists to
+prevent.
+
+Only when the module is internal *and* nothing consumes it is it a seam
 for a later item — and there, defensive hardening is speculation: the first
 real consumer, running against the real service, is a stronger test than any
 reviewer's imagination. Reply, name the consuming issue, resolve.
