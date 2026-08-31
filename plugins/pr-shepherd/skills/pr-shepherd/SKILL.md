@@ -238,16 +238,34 @@ every new package into a false "it has consumers". And exclude the package by
 recursive matches with `./`, so a `grep -v "^<pkg>/"` filter silently keeps the
 package's own internal imports and reports a consumer that does not exist.
 
-If nothing consumes it, the module is a seam for a later item. Defensive
-hardening there is speculation: the first real consumer, running against the
-real service, is a stronger test than any reviewer's imagination. Reply, name
-the consuming issue, resolve.
+**That grep is necessary, not sufficient — an absent in-repo import does not
+prove unreachable.** Before concluding anything, check the ways a caller
+reaches code without importing it from this repository:
 
-**Never widen an interface to satisfy a review comment.** Adding a config
-field, an allowlist entry, a supported format or a new code path to close a
-thread creates surface that produces the *next* finding. If a fix requires new
-public API, that is a signal the finding is out of scope, not that the API was
-missing.
+- packaging entry points — `[project.scripts]`, `[project.entry-points]`,
+  `console_scripts`, a plugin manifest a framework discovers at runtime
+- a public library API the package exists to expose, where the consumers are
+  downstream users and there is nothing local to find
+- the linked issue naming an external consumer explicitly
+
+If any of those apply, the path **is** reachable and a finding on it is a real
+fix. Only when the module is internal *and* nothing consumes it is it a seam
+for a later item — and there, defensive hardening is speculation: the first
+real consumer, running against the real service, is a stronger test than any
+reviewer's imagination. Reply, name the consuming issue, resolve.
+
+**Never widen an interface to satisfy a review comment — unless the issue's
+acceptance criteria require it.** Adding a config field, an allowlist entry, a
+supported format or a new code path *to close a thread* creates surface that
+produces the next finding. But an acceptance criterion can only be satisfiable
+by new API: "swapping the provider is a config change with no call-site edits"
+is not met while the endpoint is a hard-coded constant, and adding that field
+is a **real fix**, not scope creep.
+
+The test is whose requirement it is. Trace the addition back to a clause in the
+issue or RFC: if it lands on one, implement it. If the only justification is
+the review comment itself, that is the signal the finding is out of scope, not
+that the API was missing.
 
 **Never add a value you have not verified** against a spec, the vendor's docs,
 or a run. A plausible-looking constant is a defect waiting to be found, and a
@@ -258,11 +276,15 @@ assumption look checked.
 whose findings were defects *introduced by a previous round's fix*. When that
 approaches half, stop: you are adding surface faster than review removes it.
 
-**Round budget.** After **3** rounds on one PR, report to the user: rounds so
-far, the regression count, acceptance-criteria status, and a merge/continue
-recommendation. Do not exceed **5** without an explicit instruction to keep
-going. "The bot found something" is not a reason to continue; "the acceptance
-criteria are not met" is.
+**Round budget — the cap is Phase 1.7's, not a second one.** Phase 1.7 already
+stops at **3 drain rounds** and treats further ping-pong as a hard stop. This
+section adds *what to say* when that fires, not a different number: report the
+round count, the regression count, acceptance-criteria status, and a
+merge/continue recommendation. An explicit user instruction to continue
+overrides the cap — that is the only thing that does — and when it is
+overridden you keep counting and keep reporting at every third round, because
+the tally is what makes the runaway visible. "The bot found something" is not a
+reason to continue; "the acceptance criteria are not met" is.
 
 **When you do stop,** say so in the approval or merge message — which criteria
 are met, what you deliberately left, and where it belongs. A future reader
