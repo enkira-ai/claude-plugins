@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spec-Oracle Review"
+  short_description: "Blind spec-derived test plan, then plan-vs-implementation diff with probes and mutations"
+  default_prompt: "Use $spec-oracle-review on this PR: read only the owning issue, SPEC, and ADRs; post the blind test plan with its fork table; then read the diff, run probes and mutations in a throwaway worktree, and post the four-bin triage."
