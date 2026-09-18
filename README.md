@@ -96,6 +96,14 @@ Non-interactive second-opinion reviews via the Codex CLI — wraps `codex review
 
 **Command:** `/codex-review:review`
 
+### spec-oracle-review
+
+Blind, spec-derived PR review. The reviewer writes a test plan from the SPEC / ADR / issue **before reading the implementation**, posts it (fork table with "bad result if the other branch wins", test matrix, pre-registered thin spots, planned mutations), then reads the diff and runs probe tests and single-line mutations in a throwaway worktree. Every divergence is triaged into one of four bins — spec needs a sentence / implementation defect / harness gap / unreachable by construction — and the owner's fork rulings become the "already settled" focus for the diff-anchored cross-agent rounds that follow.
+
+**Command:** `/spec-oracle-review:review <PR>`
+
+**Scope and order:** implementation PRs for features or material behaviour changes with a spec behind them — not small bug fixes, not ADR/spec PRs. Run it as the first review when the PR opens (against the spec as it stands then, not at spec merge), Phase 1 in a worktree at the PR's base; then the cross-agent / Codex rounds on the post-ruling head. Local only.
+
 ### narrative-video-production
 
 End-to-end playbook for producing a multi-segment narrative video — slideshow with theme, year-in-review, project retrospective, family/wedding/birthday montage with arc, course summary, documentary opener, conference recap, memorial, anniversary, organizational milestone reel. Eight phases from raw material intake through final compressed mp4.

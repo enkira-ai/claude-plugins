@@ -373,6 +373,31 @@
         "voice",
         "telephony"
       ]
+    },
+    {
+      "name": "spec-oracle-review",
+      "source": "./plugins/spec-oracle-review",
+      "description": "Blind, spec-derived PR review. Write the test plan from the SPEC/ADR/issue before reading the implementation, then diff plan against code and tests \u2014 with probe tests and single-line mutations \u2014 to separate spec ambiguity, implementation defects, harness gaps, and unreachable requirements. Run it before diff-anchored cross-agent rounds.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Bo Wen"
+      },
+      "category": "development",
+      "keywords": [
+        "review",
+        "spec",
+        "adr",
+        "acceptance-criteria",
+        "test-plan",
+        "oracle",
+        "blind-review",
+        "mutation-testing",
+        "ambiguity",
+        "pr",
+        "cross-agent",
+        "atdd",
+        "iv&v"
+      ]
     }
   ]
 }

@@ -77,3 +77,4 @@ Skills reference it via: `bash ${CLAUDE_PLUGIN_ROOT}/scripts/run-python.sh ${CLA
 - **agent-chat** — Round-robin chat protocol for 2..N AI agents (Claude Code, Codex, Gemini CLI, or any combination) to collaborate on hard problems, with auditable transcripts that include each subagent's setup prompt
 - **codex-review** — One-shot cross-model review via the Codex CLI (uncommitted / branch / commit). Catches blind spots Claude's own review misses.
 - **voice-stack-mcps** — Set up docs & API MCP servers for our voice stack (Telnyx docs + API-actions, LiveKit docs, Pipecat Context Hub) on both Claude Code and Codex. Onboards a teammate's coding agent; asks before adding the write-capable Telnyx API server.
+- **spec-oracle-review** — Blind spec-derived PR review: post the test plan before reading the code, then diff plan vs implementation with probes and mutations; triages into spec ambiguity / defect / harness gap / unreachable. Runs before cross-agent diff rounds.
