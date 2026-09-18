@@ -2,8 +2,7 @@
 
 **Read**: <owning issue>, <SPEC(s) with section numbers>, <ADRs>, <architecture docs>, and the
 base-branch contracts in `<paths>` (as on `<base>` at `<sha>`).
-**Not read**: the diff, `src/`/`tests/` on `<branch>`, the PR's review threads, the PR body's
-evidence sections. PR head under review: `<sha>`.
+**Not read**: PR #<N> in any form. The follow-up comment pins the head it is diffed against.
 **Contamination**: <none | "I saw the test file names listed in ADR-NNNN §x; nothing below is
 derived from their contents">.
 

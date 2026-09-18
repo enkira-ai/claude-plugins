@@ -27,10 +27,11 @@ are complementary and the order matters — see [Where it sits](#where-it-sits).
 You cannot un-read a diff. Everything below depends on Phase 1 being posted before the reviewer
 has seen the implementation, and on the reviewer not being the author.
 
-**Before the plan is posted, do not open**: the PR diff; `src/`, `tests/`, or their equivalents
-on the PR branch; the PR's review threads or other reviewers' findings; the PR body's evidence or
-test-results sections. Read the PR body only far enough to find the owning issue and the base/head
-SHAs.
+**Before the plan is posted, do not open the PR in any form.** The PR number is all the planner
+needs — to post the comment. Its branch name, head commit, body, files, and threads are each
+information about the implementation, and a list of the ways to see the diff is a how-to. A
+driver hands the planner the owning issue and the base commit; without one, take only the issue
+number from the PR title and nothing else.
 
 **Isolation is structural, not a tool allowlist.** Run Phase 1 in a worktree checked out at the
 PR's **base** commit, so the implementation is not on disk, and name in the prompt the PR number
@@ -69,7 +70,8 @@ knew is worthless as evidence.
 Use `templates/plan-comment.md`. The comment has five parts; each one exists to make the later
 diff checkable rather than impressionistic.
 
-**Header.** What was read, what was deliberately not read, the SHAs, and any contamination.
+**Header.** What was read, that the PR was not opened, the base/spec commit, and any
+contamination. Not the head commit: the plan does not know it, and the diff comment pins it.
 
 **A. Fork table.** Every place the spec allowed you two readings. Columns:
 `# | Fork | Reading I test | Other reading | Bad result if the other branch wins`.
