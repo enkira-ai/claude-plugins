@@ -102,7 +102,7 @@ Blind, spec-derived PR review. The reviewer writes a test plan from the SPEC / A
 
 **Command:** `/spec-oracle-review:review <PR>`
 
-**Order:** run it as the first review on a PR (or at spec-pin time, before code exists), then the cross-agent / Codex rounds on the post-ruling head.
+**Scope and order:** implementation PRs for features or material behaviour changes with a spec behind them — not small bug fixes, not ADR/spec PRs. Run it as the first review when the PR opens (against the spec as it stands then, not at spec merge), Phase 1 in a worktree at the PR's base; then the cross-agent / Codex rounds on the post-ruling head. Local only.
 
 ### narrative-video-production
 

@@ -11,9 +11,11 @@ exists to enforce:
 
 1. **Phase 1 is posted before any implementation is read.** Resolve the PR only far enough to
    find the owning issue and the base/head SHAs (`gh pr view <N> --json number,baseRefOid,
-   headRefOid,body,closingIssuesReferences`). Do not fetch the diff, the branch's source or
-   tests, or the PR's review threads until the plan comment is on the PR. If the current session
-   authored any of the code, stop and say the oracle needs a fresh session.
+   headRefOid,body,closingIssuesReferences`). Open a worktree at the **base** SHA and write the
+   plan from there; do not fetch the diff, the branch's source or tests, or the PR's review
+   threads until the plan comment is on the PR. If the current session authored any of the code,
+   stop and say the oracle needs a fresh session. If the PR is a small bug fix or an ADR/spec
+   document, say this review is not for it and stop.
 2. **Phases 2–4 are empirical.** Read the diff at the pinned head, then open a throwaway
    worktree at that head, run the probes and the mutations there, remove the worktree, and post
    the triage comment with traces attached.

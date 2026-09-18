@@ -1,6 +1,6 @@
 ---
 name: spec-oracle-review
-description: "Use when reviewing a PR against its SPEC, ADR, or issue acceptance criteria by writing a spec-derived test plan BEFORE reading the implementation, then diffing that plan against the code and tests to separate spec ambiguity, implementation defects, harness gaps, and unreachable requirements. Also use at spec-pin time, before any code exists, to test whether a spec is unambiguous and consistent with the codebase. Triggers on: spec oracle review, blind test plan, pre-read baseline, review against the spec before reading the code, plan vs implementation, does the implementation match the spec, is the spec ambiguous, which reading did the PR take. Not a diff-anchored code review — run this first, then the cross-agent rounds."
+description: "Use when the implementation PR for a feature or material behaviour change is open and there is a SPEC, ADR, or issue acceptance criteria to derive from: write a spec-derived test plan BEFORE reading the implementation, then diff that plan against the code and tests to separate spec ambiguity, implementation defects, harness gaps, and unreachable requirements. Do NOT use for a small bug fix (a diff-anchored cross-agent round is enough), for an ADR / spec / architecture document PR (there is no implementation to diff against), or at spec-merge time before the implementation exists (specs move; plan against the spec as it stands when the PR opens). Triggers on: spec oracle review, blind test plan, pre-read baseline, review against the spec before reading the code, plan vs implementation, does the implementation match the spec, is the spec ambiguous, which reading did the PR take. Runs first, then the cross-agent rounds."
 ---
 
 # Spec-Oracle Review
@@ -32,6 +32,13 @@ on the PR branch; the PR's review threads or other reviewers' findings; the PR b
 test-results sections. Read the PR body only far enough to find the owning issue and the base/head
 SHAs.
 
+**Isolation is structural, not a tool allowlist.** Run Phase 1 in a worktree checked out at the
+PR's **base** commit, so the implementation is not on disk, and name in the prompt the PR number
+and the worktree paths that are off limits. Do not restrict the planner's tools beyond that: each
+issue needs a different number of specs, ADRs, and base-branch contracts read, and a planner
+starved of context writes a plan with no value. Given the base tree, the issue, this skill, and
+the no-read list, trust it.
+
 **Do read**: the owning issue and its acceptance criteria; the SPEC(s); every ADR the spec cites;
 architecture documents; and the *base branch's* code that the PR builds on — its contracts,
 protocols, types, and existing tests. Reading the base is the codebase-consistency half of the
@@ -51,9 +58,11 @@ knew is worthless as evidence.
 1. Identify the owning issue, the spec set, and pin SHAs: *spec as on `<base>` at `<sha>`*,
    *PR head `<sha>`*. The plan is against those and nothing else; a moved head retires the
    comparison, not the plan.
-2. Confirm the change is worth this ceremony. Skip when there is no spec or acceptance criteria to
-   derive from (then the only finding is "write the spec"), or when the change is a typo, version
-   bump, or straight revert. Say so on the PR if you skip.
+2. Confirm the change is the kind this review is for. **Yes**: an implementation PR for a feature
+   or material behaviour change with a spec, ADR, or acceptance criteria behind it. **No**: a small
+   bug fix (a diff-anchored cross-agent round is enough); an ADR, spec, or architecture document PR
+   (nothing to diff a plan against); a typo, version bump, or straight revert. Skip when there is no
+   spec at all — then the only finding is "write the spec". Say so on the PR if you skip.
 
 ## Phase 1 — Blind oracle (post before reading code)
 
@@ -157,12 +166,10 @@ to turn the probes into real tests on the branch so nobody re-derives them.
 
 ## Where it sits
 
-**Ideal timing:** Phase 1 at spec-pin time, before any implementation exists, written by someone
-who will not implement it. Then Phases 2–4 when the PR opens. This is the reviewer's half of
-acceptance-test-driven development, and it catches spec ambiguity before it costs a PR.
-
-**Otherwise:** run Phases 1–4 as the **first** review on the PR, before any diff-anchored review
-posts. Three reasons:
+**When:** as the **first** review on the implementation PR, against the spec as it stands when
+the PR opens — not at spec-merge time. Specs change between merge and implementation, and a plan
+against a superseded spec is noise; the base worktree gives Phase 1 everything it needs without
+the implementation. Run it before any diff-anchored review posts, for three reasons:
 
 - Independence is a one-way door. Once a diff-anchored reviewer has posted, the next reader is
   anchored on those findings; the blind plan can no longer be written.
@@ -186,6 +193,9 @@ handling, and error paths on a design that is no longer moving.
 - Only recording the plan's hits. The "where I was wrong" section is mandatory.
 - Letting the PR resolve a fork silently in code. The sentence goes in the spec.
 - Running it on a change with no spec. Then the finding is "write the spec"; say that and stop.
+- Running it on an ADR or spec PR, or on a small bug fix. The first has no implementation to diff;
+  the second is what the cross-agent round is for.
+- Restricting the planner's tools to enforce blindness. Put it in a base worktree instead.
 
 ## Lineage
 
