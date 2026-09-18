@@ -109,6 +109,10 @@ Read every changed file at the pinned head, then every new or changed test. Prod
 **Tally.** Plan rows → *pinned by a test* / *fork took the other branch* / *no test* / *behaviour
 the spec did not ask for*. A single line of counts; it is the summary a human reads first.
 
+**Stale plan.** The plan header pins the commit its spec was read at. If the PR's base has moved
+since and the spec changed under it, say so in the tally and re-derive the affected rows before
+diffing; a stale oracle diffed silently reports the spec's drift as the implementation's fault.
+
 **Fork outcomes.** `# | Fork | Branch the PR took | Verdict` where the verdict is one of
 *SPEC must pin*, *defect*, *fine*, *fine but pin it*. Cite the function or line that shows which
 branch was taken. New forks discovered while reading get the next numbers.
