@@ -7,8 +7,11 @@ one profile.
 Sources:
   * GitHub (via the `gh` CLI): PRs awaiting the user's review, the user's own open
     PRs with CI/review state, assigned issues, recent mentions, the user's recent
-    activity (commits, merged PRs, closed issues), and every issue/PR created in
-    the watched repos since the last brief.
+    activity (commits, merged PRs, closed issues), and every issue/PR created or
+    merged in the watched repos since the last brief.
+  * The windows and identities the skill needs to read Google Calendar, Slack and
+    Gmail through the claude.ai connectors (`context`). Those reads happen in the
+    skill, because the connectors are not reachable from this script.
   * Local Claude Code transcripts (~/.claude/projects/*/*.jsonl), only for a profile
     with `local_sessions: true`: the user's sessions active since the last brief —
     "where I stopped".
@@ -29,8 +32,9 @@ import os
 import re
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as dtime, timedelta, timezone
 from pathlib import Path
 
 CONFIG_PATH = Path(os.environ.get(
@@ -55,6 +59,13 @@ DEFAULT_CONFIG = {
     "max_lookback_hours": 36,     # cap for --since auto when the last brief is old
     "body_chars": 1500,
     "recent_sessions_floor": 3,   # always include this many latest sessions
+    # Calendar / Slack / Gmail (read by the skill through the connectors)
+    "owner": False,               # the connector account's owner: own DMs, whole mailbox, all meetings
+    "aliases": [],                # every address the person is invited/cc'd as; email_to is added
+    "slack_member_id": "",        # their Slack user ID, for DMs and mentions
+    "calendar_id": "",            # shared calendar to read meetings from (e.g. admin@novaserve.ai)
+    "slack_channels": [],         # [{"name": "technology", "id": "C…"}] summarized for everyone
+    "evening_after_hour": 15,     # a run at/after this local hour previews tomorrow's meetings
 }
 
 NOISE_PREFIXES = ("<local-command", "<command-name>", "<command-message>",
@@ -119,11 +130,17 @@ def gh_text(args):
 
 
 def gh_json(args, errors, label):
-    try:
-        out = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=90)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        errors.append(f"{label}: {exc}")
-        return []
+    # GitHub's search API allows 30 requests a minute; a run that briefs two
+    # profiles back to back can hit it, so wait out the window and retry.
+    for attempt in range(4):
+        try:
+            out = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=90)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            errors.append(f"{label}: {exc}")
+            return []
+        if out.returncode == 0 or "rate limit" not in out.stderr.lower() or attempt == 3:
+            break
+        time.sleep(20 * (attempt + 1))
     if out.returncode != 0:
         errors.append(f"{label}: {out.stderr.strip()[:300]}")
         return []
@@ -162,6 +179,14 @@ def slim_item(item, body_chars):
     if "body" in item:
         out["body"] = trim(item["body"], body_chars)
     return out
+
+
+def merged_item(item, repo):
+    return {"repo": repo, "number": item.get("number"), "title": item.get("title"),
+            "url": item.get("url"), "author": (item.get("author") or {}).get("login"),
+            "merged": item.get("mergedAt"),
+            "labels": [l.get("name") for l in item.get("labels") or []],
+            "body": trim(item.get("body"), 600)}
 
 
 def slim_commit(c):
@@ -227,6 +252,9 @@ def collect_github(cfg, since, errors):
         jobs[f"new_issues:{repo}"] = ["issue", "list", "-R", repo, "--state=all", "--limit=50",
                                       "--search", f"created:>={day}", "--json",
                                       "number,title,url,author,createdAt,updatedAt,labels,body,state,assignees"]
+        jobs[f"merged:{repo}"] = ["pr", "list", "-R", repo, "--state=merged", "--limit=50",
+                                  "--search", f"merged:>={day}", "--json",
+                                  "number,title,url,author,mergedAt,labels,body"]
         jobs[f"my_prs:{repo}"] = ["pr", "list", "-R", repo, "--author", user, "--state=open",
                                   "--limit=30", "--json",
                                   "number,title,url,createdAt,updatedAt,isDraft,reviewDecision,"
@@ -311,6 +339,8 @@ def collect_github(cfg, since, errors):
         out["new_in_watched_repos"][repo] = {
             "prs": [p for p in (slim_item(i, n) for i in tag(raw[f"new_prs:{repo}"], repo)) if fresh(p)],
             "issues": [p for p in (slim_item(i, n) for i in tag(raw[f"new_issues:{repo}"], repo)) if fresh(p)],
+            "merged": [merged_item(i, repo) for i in raw[f"merged:{repo}"]
+                       if (parse_ts(i.get("mergedAt")) or since) >= since],
         }
     # Open PRs of mine outside the watched repos (no CI detail, but don't lose them).
     for item in raw["my_open_prs_all"]:
@@ -471,6 +501,49 @@ def mark_sent(cfg):
     print(f"recorded last_sent={iso(now_utc())} for profile {cfg['name']}")
 
 
+def build_context(cfg, since):
+    """Windows and identities for the connector reads the skill performs."""
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(cfg["timezone"])
+    except Exception:  # unknown zone or no tzdata: fall back to UTC
+        tz = timezone.utc
+    now = now_utc().astimezone(tz)
+    # Twice-daily profiles get tomorrow's meetings in the evening run; a profile
+    # with one send a day always gets that day's remaining meetings.
+    tomorrow = len(cfg["schedule"]) > 1 and now.hour >= cfg["evening_after_hour"]
+    day = now.date() + timedelta(days=1) if tomorrow else now.date()
+    start = datetime.combine(day, dtime.min, tz) if tomorrow else now
+    end = datetime.combine(day + timedelta(days=1), dtime.min, tz)
+    aliases = sorted({a.lower() for a in [cfg["email_to"], *cfg["aliases"]] if a})
+    return {
+        "meetings": {
+            "calendar_id": cfg["calendar_id"],
+            "day": day.isoformat(),
+            "label": "tomorrow" if tomorrow else "today",
+            # Calendar's list_events wants local times without an offset, plus timeZone.
+            "start_local": start.strftime("%Y-%m-%dT%H:%M:%S"),
+            "end_local": end.strftime("%Y-%m-%dT%H:%M:%S"),
+            "timezone": cfg["timezone"],
+            "attendee_emails": aliases,
+            "all_events": cfg["owner"],
+        },
+        "slack": {
+            "channels": cfg["slack_channels"],
+            "member_id": cfg["slack_member_id"],
+            "own_dms": cfg["owner"],
+            "after_unix": str(int(since.timestamp())),
+            "after_date": (since.astimezone(tz).date() - timedelta(days=1)).isoformat(),
+        },
+        "email": {
+            "mailbox": cfg["email_from"],
+            "addresses": aliases,
+            "whole_mailbox": cfg["owner"],
+            "after_query": f"after:{int(since.timestamp())}",
+        },
+    }
+
+
 def resolve_since(arg, cfg):
     now = now_utc()
     floor = now - timedelta(hours=cfg["max_lookback_hours"])
@@ -538,6 +611,7 @@ def main():
         "repos": cfg["repos"],
         "github": github,
         "sessions": sessions,
+        "context": build_context(cfg, since),
         "errors": errors,
     }
     profile_dir(cfg).mkdir(parents=True, exist_ok=True)
