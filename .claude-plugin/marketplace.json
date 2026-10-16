@@ -403,7 +403,7 @@
       "name": "daily-brief",
       "source": "./plugins/daily-brief",
       "description": "Scheduled dev briefs by email/Slack, one profile per teammate: PRs awaiting their review ranked by urgency, their PRs' blockers and recent progress, where the machine owner stopped in their Claude sessions, and new issues/PRs across watched repos.",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "author": {
         "name": "Enkira AI"
       },

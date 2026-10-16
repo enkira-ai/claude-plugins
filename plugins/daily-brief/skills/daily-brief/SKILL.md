@@ -49,6 +49,7 @@ Top-level keys are shared defaults; each entry in `profiles` overrides them. A c
 {
   "org": "enkira-ai",
   "repos": ["panbot", "Vocce", "VoiceAIArena", "panbot-fleet", "panbot-observability"],
+  "exclude_repos": ["nexus", "cong"],
   "timezone": "America/New_York",
   "email_from": "admin@novaserve.ai",
   "profiles": [
@@ -71,6 +72,7 @@ Top-level keys are shared defaults; each entry in `profiles` overrides them. A c
 | `github_user` | GitHub login whose reviews/PRs/mentions the brief tracks. Empty → the `gh` account. |
 | `org` | Prefix for bare repo names and the scope of GitHub searches. |
 | `repos` | Watched repos (`name` or `owner/name`) for "what's new" and CI detail on own PRs. |
+| `exclude_repos` | Repos dropped from every org-wide search: review requests, own PRs, assigned issues, mentions and activity. Matching is exact (`cong` does not drop `cong-research`). |
 | `git_identities` | Extra git `user.name`/`user.email` values that mark a Claude session as the user's. The GitHub login always counts. Matching ignores case and punctuation. |
 | `email_to` | Recipient. Empty → no email. |
 | `email_from` | The Google account the Gmail connector must be signed into. The brief is sent only when the connector's account matches (see Deliver). |
