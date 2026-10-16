@@ -402,8 +402,8 @@
     {
       "name": "daily-brief",
       "source": "./plugins/daily-brief",
-      "description": "Twice-daily dev brief by email/Slack: PRs awaiting your review ranked by urgency, where you stopped in your Claude sessions, your PRs' blockers, and new issues/PRs across watched repos. Per-user config; runs on a schedule in a background session.",
-      "version": "1.0.0",
+      "description": "Scheduled dev briefs by email/Slack, one profile per teammate: PRs awaiting their review ranked by urgency, their PRs' blockers and recent progress, where the machine owner stopped in their Claude sessions, and new issues/PRs across watched repos.",
+      "version": "1.1.0",
       "author": {
         "name": "Enkira AI"
       },

@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
 """Collect the raw facts for a daily brief and print them as one JSON document.
 
+One config can hold several profiles (one per recipient); each run collects for
+one profile.
+
 Sources:
   * GitHub (via the `gh` CLI): PRs awaiting the user's review, the user's own open
-    PRs with CI/review state, assigned issues, recent mentions, and every issue/PR
-    created in the watched repos since the last brief.
-  * Local Claude Code transcripts (~/.claude/projects/*/*.jsonl): the user's sessions
-    active since the last brief — "where I stopped".
+    PRs with CI/review state, assigned issues, recent mentions, the user's recent
+    activity (commits, merged PRs, closed issues), and every issue/PR created in
+    the watched repos since the last brief.
+  * Local Claude Code transcripts (~/.claude/projects/*/*.jsonl), only for a profile
+    with `local_sessions: true`: the user's sessions active since the last brief —
+    "where I stopped".
 
 The script only gathers facts. Ranking, urgency calls and prose are the skill's job.
 
 Usage:
-  collect.py [--since ISO8601|auto] [--config PATH]
-  collect.py --mark-sent            # record now as the last-brief time
-  collect.py --show-config          # print the resolved config
+  collect.py --profile NAME [--since ISO8601|auto] [--config PATH] [--skip-if-sent-within H]
+  collect.py --profile NAME --mark-sent   # record now as this profile's last-brief time
+  collect.py --list-profiles              # names, recipients and schedules (JSON)
+  collect.py --profile NAME --show-config # print one profile's resolved config
+--profile may be omitted when the config has a single profile.
 """
 
 import argparse
@@ -32,11 +39,14 @@ STATE_DIR = Path(os.environ.get(
     "DAILY_BRIEF_STATE", Path.home() / ".local" / "state" / "daily-brief"))
 PROJECTS_DIR = Path.home() / ".claude" / "projects"
 
+# Shared defaults; every key can be overridden per profile.
 DEFAULT_CONFIG = {
     "github_user": "",            # empty → `gh api user`
     "org": "enkira-ai",
     "repos": [],                  # "owner/name" or bare "name" (prefixed with org)
     "git_identities": [],         # extra git user.name/email values that count as "me"
+    "local_sessions": False,      # summarize this machine's Claude sessions for this user
+    "email_from": "",
     "email_to": "",
     "slack_user": "",             # Slack user/channel ID for the DM; empty → no Slack
     "timezone": "UTC",
@@ -67,16 +77,33 @@ def parse_ts(value):
         return None
 
 
-def load_config(path):
-    cfg = dict(DEFAULT_CONFIG)
-    if path.exists():
-        cfg.update(json.loads(path.read_text()))
-    else:
-        cfg["_missing"] = True
-    if not cfg["github_user"]:
-        cfg["github_user"] = gh_text(["api", "user", "-q", ".login"]) or ""
-    cfg["repos"] = [r if "/" in r else f"{cfg['org']}/{r}" for r in cfg["repos"]]
-    return cfg
+def load_profiles(path):
+    """Return {name: resolved profile}. A config without `profiles` is one profile
+    that owns this machine's sessions (the original single-user format)."""
+    if not path.exists():
+        sys.exit(f"No config at {path}. Run the daily-brief setup first.")
+    raw = json.loads(path.read_text())
+    shared = {k: v for k, v in raw.items() if k != "profiles"}
+    entries = raw.get("profiles") or [{"local_sessions": True, **shared}]
+    profiles = {}
+    for entry in entries:
+        cfg = {**DEFAULT_CONFIG, **shared, **entry}
+        if not cfg["github_user"]:
+            cfg["github_user"] = gh_text(["api", "user", "-q", ".login"]) or ""
+        cfg["name"] = entry.get("name") or cfg["github_user"]
+        cfg["repos"] = [r if "/" in r else f"{cfg['org']}/{r}" for r in cfg["repos"]]
+        profiles[cfg["name"]] = cfg
+    return profiles
+
+
+def pick_profile(profiles, name):
+    if name:
+        if name not in profiles:
+            sys.exit(f"Unknown profile {name!r}. Profiles: {', '.join(profiles)}")
+        return profiles[name]
+    if len(profiles) > 1:
+        sys.exit(f"--profile is required. Profiles: {', '.join(profiles)}")
+    return next(iter(profiles.values()))
 
 
 # --------------------------------------------------------------------------- gh
@@ -135,6 +162,15 @@ def slim_item(item, body_chars):
     return out
 
 
+def slim_commit(c):
+    url = c.get("url") or ""
+    m = re.match(r"https://github.com/([^/]+/[^/]+)/commit/", url)
+    commit = c.get("commit") or {}
+    return {"repo": m.group(1) if m else None, "sha": (c.get("sha") or "")[:7], "url": url,
+            "message": (commit.get("message") or "").split("\n")[0][:200],
+            "date": (commit.get("author") or {}).get("date")}
+
+
 def summarize_ci(checks):
     counts = {"pass": 0, "fail": 0, "pending": 0}
     failing = []
@@ -172,6 +208,17 @@ def collect_github(cfg, since, errors):
                             f"--owner={org}", "--limit=50", "--json",
                             "number,title,url,repository,createdAt,updatedAt,isDraft"],
     }
+    jobs.update({
+        "commits": ["search", "commits", f"--author={user}", f"--owner={org}",
+                    f"--author-date=>={day}", "--sort=author-date", "--limit=50",
+                    "--json", "sha,commit,url"],
+        "merged_prs": ["search", "prs", f"--author={user}", f"--owner={org}",
+                       f"--merged-at=>={day}", "--limit=30", "--json",
+                       "number,title,url,repository,createdAt,updatedAt,labels"],
+        "closed_issues": ["search", "issues", f"--assignee={user}", f"--owner={org}",
+                          f"--closed=>={day}", "--limit=30", "--json",
+                          "number,title,url,repository,createdAt,updatedAt,labels,state"],
+    })
     for repo in cfg["repos"]:
         jobs[f"new_prs:{repo}"] = ["pr", "list", "-R", repo, "--state=all", "--limit=50",
                                    "--search", f"created:>={day}", "--json", pr_fields]
@@ -198,6 +245,12 @@ def collect_github(cfg, since, errors):
         "mentions": [slim_item(i, n) for i in raw["mentions"]],
         "my_open_prs": [],
         "new_in_watched_repos": {},
+        "activity": {
+            "commits": [slim_commit(c) for c in raw["commits"]
+                        if (parse_ts(slim_commit(c)["date"]) or since) >= since],
+            "merged_prs": [slim_item(i, n) for i in raw["merged_prs"]],
+            "closed_issues": [slim_item(i, n) for i in raw["closed_issues"]],
+        },
     }
 
     # gh's `created:>=DATE` is day-granular; drop anything older than `since`.
@@ -384,15 +437,22 @@ def collect_sessions(cfg, since, errors):
 
 # ---------------------------------------------------------------------- state
 
-def last_sent():
-    f = STATE_DIR / "last_sent"
+def profile_dir(cfg):
+    return STATE_DIR / "profiles" / re.sub(r"[^A-Za-z0-9_.-]", "_", cfg["name"])
+
+
+def last_sent(cfg):
+    f = profile_dir(cfg) / "last_sent"
+    if not f.exists() and cfg["local_sessions"]:
+        f = STATE_DIR / "last_sent"  # pre-profiles location
     return parse_ts(f.read_text().strip()) if f.exists() else None
 
 
-def mark_sent():
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    (STATE_DIR / "last_sent").write_text(iso(now_utc()) + "\n")
-    print(f"recorded last_sent={iso(now_utc())}")
+def mark_sent(cfg):
+    d = profile_dir(cfg)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "last_sent").write_text(iso(now_utc()) + "\n")
+    print(f"recorded last_sent={iso(now_utc())} for profile {cfg['name']}")
 
 
 def resolve_since(arg, cfg):
@@ -403,7 +463,7 @@ def resolve_since(arg, cfg):
         if not ts:
             sys.exit(f"bad --since value: {arg}")
         return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
-    prev = last_sent()
+    prev = last_sent(cfg)
     if prev is None:
         return now - timedelta(hours=24)
     return max(prev, floor)
@@ -411,22 +471,34 @@ def resolve_since(arg, cfg):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--profile")
+    ap.add_argument("--list-profiles", action="store_true")
+    ap.add_argument("--skip-if-sent-within", type=float, metavar="HOURS",
+                    help="print {\"skip\": true, ...} and exit if this profile was sent this recently")
     ap.add_argument("--since", default="auto")
     ap.add_argument("--config", type=Path, default=CONFIG_PATH)
     ap.add_argument("--mark-sent", action="store_true")
     ap.add_argument("--show-config", action="store_true")
     args = ap.parse_args()
 
-    if args.mark_sent:
-        mark_sent()
+    profiles = load_profiles(args.config)
+    if args.list_profiles:
+        print(json.dumps([{k: p[k] for k in ("name", "github_user", "email_to", "slack_user",
+                                              "timezone", "schedule", "local_sessions")}
+                          for p in profiles.values()], indent=2))
         return
-
-    cfg = load_config(args.config)
+    cfg = pick_profile(profiles, args.profile)
+    if args.mark_sent:
+        mark_sent(cfg)
+        return
     if args.show_config:
         print(json.dumps({**cfg, "_path": str(args.config)}, indent=2))
         return
-    if cfg.get("_missing"):
-        sys.exit(f"No config at {args.config}. Run the daily-brief setup first.")
+    if args.skip_if_sent_within is not None:
+        prev = last_sent(cfg)
+        if prev and now_utc() - prev < timedelta(hours=args.skip_if_sent_within):
+            print(json.dumps({"skip": True, "profile": cfg["name"], "last_sent": iso(prev)}))
+            return
     if not cfg["github_user"]:
         sys.exit("github_user not set and `gh api user` failed — is gh authenticated?")
 
@@ -434,21 +506,26 @@ def main():
     errors = []
     with ThreadPoolExecutor(max_workers=2) as pool:
         gh_future = pool.submit(collect_github, cfg, since, errors)
-        sessions_future = pool.submit(collect_sessions, cfg, since, errors)
-        github, sessions = gh_future.result(), sessions_future.result()
+        sessions_future = (pool.submit(collect_sessions, cfg, since, errors)
+                           if cfg["local_sessions"] else None)
+        github = gh_future.result()
+        sessions = sessions_future.result() if sessions_future else None
 
     report = {
         "generated_at": iso(now_utc()),
         "since": iso(since),
+        "profile": cfg["name"],
         "user": cfg["github_user"],
+        "email_to": cfg["email_to"],
+        "slack_user": cfg["slack_user"],
         "timezone": cfg["timezone"],
         "repos": cfg["repos"],
         "github": github,
         "sessions": sessions,
         "errors": errors,
     }
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    (STATE_DIR / "last_collect.json").write_text(json.dumps(report, indent=2))
+    profile_dir(cfg).mkdir(parents=True, exist_ok=True)
+    (profile_dir(cfg) / "last_collect.json").write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=2))
 
 
