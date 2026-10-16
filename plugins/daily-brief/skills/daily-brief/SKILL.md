@@ -45,6 +45,7 @@ Run when the user asks, or when the collector exits with `No config at …`.
   "repos": ["panbot", "Vocce", "VoiceAIArena", "panbot-fleet", "panbot-observability"],
   "git_identities": ["NovaServe AI", "novaserve-ai@users.noreply.github.com"],
   "email_to": "chenw@enkira.ai",
+  "email_from": "admin@novaserve.ai",
   "slack_user": "self",
   "timezone": "America/Los_Angeles",
   "schedule": ["09:00", "21:00"]
@@ -57,7 +58,8 @@ Run when the user asks, or when the collector exits with `No config at …`.
 | `org` | Prefix for bare repo names and the scope of GitHub searches. |
 | `repos` | Watched repos (`name` or `owner/name`) for "what's new" and CI detail on own PRs. |
 | `git_identities` | Extra git `user.name`/`user.email` values that mark a Claude session as the user's. The GitHub login always counts. Matching ignores case and punctuation. |
-| `email_to` | Recipient. Empty → no email. The sender is whichever Google account the Gmail connector is signed into. |
+| `email_to` | Recipient. Empty → no email. |
+| `email_from` | The Google account the Gmail connector must be signed into. The brief is sent only when the connector's account matches (see Deliver). |
 | `slack_user` | `self` → DM the logged-in Slack user; a `U…` ID → DM that user; a `C…` ID → post to that channel; empty → no Slack. |
 | `timezone` | IANA zone the `schedule` times are in. |
 | `schedule` | Local `HH:MM` send times. |
@@ -119,7 +121,7 @@ Times are shown in the config `timezone`.
 
 ### 6. Deliver
 
-- **Email** (when `email_to` is set): `mcp__claude_ai_Gmail__send_message` with `to: [email_to]`, `subject`, an `htmlBody` (simple inline-styled HTML: headings, lists, a small table for the review queue — no external CSS or images), and a plain-text `body` alternative with no Markdown.
+- **Email** (when `email_to` is set): first confirm the connector's account. Call `mcp__claude_ai_Gmail__search_threads` with `query: "in:sent"`, `pageSize: 1`, `view: "THREAD_VIEW_METADATA_ONLY"` and read the `sender` of the SENT message (or the `authuser=` in its `viewUrl`). If it is not `email_from` (case-insensitive), **do not send email**: report "Gmail connector is signed in as <account>, expected <email_from>" and deliver through Slack only. The Gmail connector is account-wide, so it may belong to someone else. Then send with `mcp__claude_ai_Gmail__send_message` with `to: [email_to]`, `subject`, an `htmlBody` (simple inline-styled HTML: headings, lists, a small table for the review queue — no external CSS or images), and a plain-text `body` alternative with no Markdown.
 - **Slack** (when `slack_user` is set): `mcp__claude_ai_Slack__slack_send_message`. `self` → the logged-in user's ID, which the tool description gives. Use Markdown, and stay under 5000 characters per message. If the brief is longer, send the review queue first, then the rest as a thread reply.
 - **Archive**: always write the Markdown version to `~/.local/state/daily-brief/briefs/<YYYY-MM-DD>-<am|pm>.md`.
 
