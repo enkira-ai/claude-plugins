@@ -127,9 +127,9 @@ These come from the claude.ai connectors (Google Calendar, Slack, Gmail), which 
 **Slack:**
 - **Channels:** for each entry in `slack.channels`, call `mcp__claude_ai_Slack__slack_read_channel` with `oldest: after_unix` and `limit: 100`. Open the busiest threads with `slack_read_thread`, at most five. Summarize decisions, open questions, action items and links. Call out anything addressed to the person (`<@member_id>`).
 - **Chats:** `mcp__claude_ai_Slack__slack_search_public_and_private` with `channel_types: "im,mpim"`, `after: after_unix`, `sort: "timestamp"`.
-  - When `own_dms` is true, use no person filter: these are the owner's own DMs and group DMs.
+  - When `own_dms` is true, use `filters: "after:<after_date>"` with no person filter: these are the owner's own DMs and group DMs. The search rejects a call that has neither keywords nor filters.
   - Otherwise use `filters: "with:<@member_id>"`, which returns only conversations the person is in.
-  - Summarize what's waiting on them: questions, requests and promised follow-ups.
+  - Summarize what's waiting on them: questions, requests and promised follow-ups. Messages the person sent themselves only matter as "awaiting a reply" when nobody has answered. Skip notes sent to their own self-DM.
 
 **Email** (only if the Gmail connector is signed into `mailbox`, checked as in Deliver):
 - Call `mcp__claude_ai_Gmail__search_threads` with `query: "<after_query> -in:sent -category:promotions -category:social"`, plus, unless `whole_mailbox` is true, ` {to:a cc:a from:a ...}` built from `addresses`.
