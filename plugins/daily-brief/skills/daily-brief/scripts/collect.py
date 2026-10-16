@@ -44,6 +44,7 @@ DEFAULT_CONFIG = {
     "github_user": "",            # empty → `gh api user`
     "org": "enkira-ai",
     "repos": [],                  # "owner/name" or bare "name" (prefixed with org)
+    "exclude_repos": [],          # dropped from every org-wide search (reviews, PRs, activity…)
     "git_identities": [],         # extra git user.name/email values that count as "me"
     "local_sessions": False,      # summarize this machine's Claude sessions for this user
     "email_from": "",
@@ -92,6 +93,7 @@ def load_profiles(path):
             cfg["github_user"] = gh_text(["api", "user", "-q", ".login"]) or ""
         cfg["name"] = entry.get("name") or cfg["github_user"]
         cfg["repos"] = [r if "/" in r else f"{cfg['org']}/{r}" for r in cfg["repos"]]
+        cfg["exclude_repos"] = [r if "/" in r else f"{cfg['org']}/{r}" for r in cfg["exclude_repos"]]
         profiles[cfg["name"]] = cfg
     return profiles
 
@@ -233,6 +235,20 @@ def collect_github(cfg, since, errors):
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = {k: pool.submit(gh_json, v, errors, k) for k, v in jobs.items()}
         raw = {k: f.result() for k, f in futures.items()}
+
+    # Org-wide searches also hit repos the team has parked; drop those everywhere.
+    excluded = {r.lower() for r in cfg["exclude_repos"]}
+
+    def repo_of(item):
+        name = (item.get("repository") or {}).get("nameWithOwner")
+        if not name:
+            m = re.match(r"https://github.com/([^/]+/[^/]+)/", item.get("url") or "")
+            name = m.group(1) if m else ""
+        return name.lower()
+
+    for key in ("review_requested", "assigned_issues", "mentions", "my_open_prs_all",
+                "commits", "merged_prs", "closed_issues"):
+        raw[key] = [i for i in raw[key] if repo_of(i) not in excluded]
 
     def tag(items, repo):
         for it in items:

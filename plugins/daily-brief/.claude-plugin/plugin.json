@@ -1,7 +1,7 @@
 {
   "name": "daily-brief",
   "description": "Scheduled dev briefs by email/Slack, one profile per teammate: PRs awaiting their review ranked by urgency, PR blockers and recent progress, where you stopped in your Claude sessions, and new issues/PRs across watched repos",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": {
     "name": "Enkira AI"
   },
