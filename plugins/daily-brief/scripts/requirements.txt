@@ -1,0 +1,2 @@
+# Shared dependencies for all daily-brief skills.
+# The collector is stdlib-only today; add pip packages here if that changes.

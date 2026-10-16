@@ -1,0 +1,10 @@
+{
+  "name": "daily-brief",
+  "description": "Twice-daily dev brief by email/Slack: PRs awaiting your review ranked by urgency, where you stopped in your Claude sessions, your PRs' blockers, and new issues/PRs across watched repos",
+  "version": "1.0.0",
+  "author": {
+    "name": "Enkira AI"
+  },
+  "skills": "./skills/",
+  "commands": "./commands/"
+}
