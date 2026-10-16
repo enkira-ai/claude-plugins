@@ -398,6 +398,27 @@
         "atdd",
         "iv&v"
       ]
+    },
+    {
+      "name": "daily-brief",
+      "source": "./plugins/daily-brief",
+      "description": "Twice-daily dev brief by email/Slack: PRs awaiting your review ranked by urgency, where you stopped in your Claude sessions, your PRs' blockers, and new issues/PRs across watched repos. Per-user config; runs on a schedule in a background session.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Enkira AI"
+      },
+      "category": "productivity",
+      "keywords": [
+        "brief",
+        "digest",
+        "review",
+        "pull-requests",
+        "issues",
+        "sessions",
+        "email",
+        "slack",
+        "schedule"
+      ]
     }
   ]
 }
