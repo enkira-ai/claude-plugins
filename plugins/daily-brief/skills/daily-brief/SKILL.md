@@ -153,7 +153,12 @@ These come from the claude.ai connectors (Google Calendar, Slack, Gmail), which 
    4. Pipe `{"files": [{id, title, mimeType, createdTime, parentId, parentTitle}], "folders": [{id, title}]}` into `bash ${CLAUDE_PLUGIN_ROOT}/scripts/run-python.sh ${CLAUDE_SKILL_DIR}/scripts/meeting_files.py --timezone <folder_timezone>`. Always use `folder_timezone`, never the profile's own zone, so every run reads and names folders the same way.
    5. For each meeting it returns, create the folder when `folder_id` is null (`create_file`, `contentMimeType: "application/vnd.google-apps.folder"`, `parentId: meetings_folder_id`), then move each file in with `update_file` (`fileId`, `parentId`). Leave `unplaced` files where they are, and list them in the owner's brief footer. These include dated media whose title doesn't show it came from a meeting, such as a screen recording. Scheduled runs never pass `--allow-weak`; that flag is only for a one-off clean-up of a folder known to hold only meetings.
    6. Never rename, trash or delete a file. If a move fails, for example on a file another account owns, leave the file where it is and note it in the owner's footer.
-2. **Pick the meetings for this brief.** For every profile, including the one that did the filing, these are the meeting folders holding a file that was created after **this profile's** `created_after`, or modified after it when the meeting started no more than 12 hours before that cutoff. The second case is a meeting that was still running at the last brief. Anything else filed in this run was already reported, or is an old note someone edited.
+2. **Pick the meetings for this brief.** For every profile, including the one that did the filing, these are the meeting folders that meet all three conditions:
+   - a file was created or modified after **this profile's** `created_after`, and the meeting started no more than 12 hours before that cutoff;
+   - the folder ID is not in `already_reported`;
+   - the meeting has **ended**. Either its calendar event's end time has passed, or, with no event, it has a recording or transcript, or its notes doc was last modified more than 30 minutes ago.
+
+   A meeting still in progress waits for the next brief, which finds it through the notes' later `modifiedTime`. An old note someone edited fails the 12-hour rule.
    - When `all_meetings` is true, keep every one.
    - Otherwise keep a meeting only if one of `attendee_emails` was invited to **that** meeting.
      - **Calendar check.** Use `list_events` on `calendar_id` from `events_start_local` to `events_end_local`. An event counts as this meeting only if it starts within 30 minutes of the folder's time **and** its title matches the folder's meeting name (ignoring case and punctuation, or one contains the other), or its Meet link has the folder's Meet code. The person must be a non-declining attendee of that event.
@@ -221,7 +226,7 @@ In `dry-run` mode, print the brief here and do not send it or mark it sent.
 
 ### 8. Mark sent
 
-Only after at least one channel succeeded, run the collector with `--profile <name> --mark-sent` so the next window starts now. If every channel failed, do not mark it sent, so the next brief covers the gap.
+Only after at least one channel succeeded, run the collector with `--profile <name> --mark-sent` so the next window starts now. Add `--mark-meetings-reported <folder_id,…>` with the meeting folders this brief covered, so a meeting whose notes change later is never reported twice. If every channel failed, do not mark it sent, so the next brief covers the gap.
 
 End the turn with one line per profile: what was sent, and where.
 

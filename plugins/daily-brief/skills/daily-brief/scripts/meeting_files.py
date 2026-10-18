@@ -207,7 +207,10 @@ def plan(files, folders, tz, allow_weak=False):
             groups.append({"day": day, "start": start, "names": {name}, "items": [],
                            "folder": folder["title"], "folder_id": folder["id"]})
 
-    items.sort(key=lambda i: str(i["start"]))
+    # Files whose titles prove they are meeting files go first, so the result does
+    # not depend on input order and a weak file can never seed a group that a
+    # placeholder-named Meet file then validates.
+    items.sort(key=lambda i: (not i["strong"], str(i["start"])))
     for it in items:
         day = str(it["start"])[:10]
         # Join the closest compatible meeting that day: within GROUP_MINUTES when both
@@ -225,6 +228,11 @@ def plan(files, folders, tz, allow_weak=False):
             elif (target is None and not is_placeholder(it["name"])
                   and names_compatible(it["name"], g["names"], strict=True)):
                 target = g
+        if target is None and not it["strong"]:
+            # A weak file only ever joins; on its own it stays where it is.
+            unplaced.append({"id": it["f"]["id"], "title": it["f"]["title"],
+                             "why": "no sign this is a meeting file"})
+            continue
         if target is None:
             target = {"day": day, "start": it["start"] if it["has_time"] else None,
                       "names": set(), "items": [], "folder": None, "folder_id": None}

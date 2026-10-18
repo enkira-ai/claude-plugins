@@ -21,6 +21,7 @@ The script only gathers facts. Ranking, urgency calls and prose are the skill's 
 Usage:
   collect.py --profile NAME [--since ISO8601|auto] [--config PATH] [--skip-if-sent-within H]
   collect.py --profile NAME --mark-sent   # record now as this profile's last-brief time
+  collect.py --profile NAME --mark-meetings-reported ID,ID   # meeting folders this brief covered
   collect.py --list-profiles              # names, recipients and schedules (JSON)
   collect.py --profile NAME --show-config # print one profile's resolved config
 --profile may be omitted when the config has a single profile.
@@ -521,6 +522,23 @@ def folder_days(since, zone):
     return [(first + timedelta(days=d)).isoformat() for d in range((last - first).days + 1)]
 
 
+def reported_meetings(cfg):
+    path = profile_dir(cfg) / "reported_meetings.json"
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return []
+
+
+def mark_meetings_reported(cfg, ids):
+    """Remember which meeting folders this profile was told about (newest 300)."""
+    seen = [i for i in reported_meetings(cfg) if i not in ids] + ids
+    d = profile_dir(cfg)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "reported_meetings.json").write_text(json.dumps(seen[-300:]))
+    print(f"recorded {len(ids)} reported meeting folder(s) for profile {cfg['name']}")
+
+
 def build_context(cfg, since):
     """Windows and identities for the connector reads the skill performs."""
     try:
@@ -577,6 +595,7 @@ def build_context(cfg, since):
             "timezone": cfg["timezone"],
             "attendee_emails": aliases,
             "all_meetings": cfg["owner"],
+            "already_reported": reported_meetings(cfg),
         },
     }
 
@@ -604,6 +623,8 @@ def main():
     ap.add_argument("--since", default="auto")
     ap.add_argument("--config", type=Path, default=CONFIG_PATH)
     ap.add_argument("--mark-sent", action="store_true")
+    ap.add_argument("--mark-meetings-reported", metavar="IDS",
+                    help="comma-separated meeting folder IDs this profile's brief covered")
     ap.add_argument("--show-config", action="store_true")
     args = ap.parse_args()
 
@@ -614,8 +635,11 @@ def main():
                           for p in profiles.values()], indent=2))
         return
     cfg = pick_profile(profiles, args.profile)
-    if args.mark_sent:
-        mark_sent(cfg)
+    if args.mark_sent or args.mark_meetings_reported is not None:
+        if args.mark_meetings_reported:
+            mark_meetings_reported(cfg, [i for i in args.mark_meetings_reported.split(",") if i])
+        if args.mark_sent:
+            mark_sent(cfg)
         return
     if args.show_config:
         print(json.dumps({**cfg, "_path": str(args.config)}, indent=2))
