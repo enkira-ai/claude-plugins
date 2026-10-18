@@ -184,7 +184,10 @@ def plan(files, folders, tz, allow_weak=False):
     items, unplaced = [], []
     for f in files:
         f = dict(f, title=html.unescape(f.get("title") or ""))
-        start, has_time, name, strong = parse_title(f["title"], tz)
+        try:
+            start, has_time, name, strong = parse_title(f["title"], tz)
+        except ValueError:  # a date-like title that is no real date, e.g. 2026-02-30
+            start, has_time, name, strong = None, False, None, False
         # A Google Doc with Meet's timestamp is Gemini notes someone renamed.
         if (not strong and f.get("mimeType") == "application/vnd.google-apps.document"
                 and re.search(rf" - \d{{4}}/\d{{2}}/\d{{2}} \d{{2}}:\d{{2}} {ZONE_TOKEN} - ", f["title"])):
