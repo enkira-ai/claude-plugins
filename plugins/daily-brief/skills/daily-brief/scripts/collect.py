@@ -553,9 +553,10 @@ def build_context(cfg, since):
             "meetings_folder_id": cfg["meetings_folder_id"],
             "calendar_id": cfg["calendar_id"],
             "created_after": iso(since),
-            "folder_days": sorted({(since.astimezone(tz) - timedelta(days=1)).date().isoformat(),
-                                   since.astimezone(tz).date().isoformat(),
-                                   now.date().isoformat()}),
+            # Every day from the one before `since` through today, so a late file
+            # finds its meeting's existing folder even across a weekend.
+            "folder_days": [(since.astimezone(tz).date() + timedelta(days=d)).isoformat()
+                            for d in range(-1, (now.date() - since.astimezone(tz).date()).days + 1)],
             "events_start_local": (since.astimezone(tz) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S"),
             "events_end_local": now.strftime("%Y-%m-%dT%H:%M:%S"),
             "timezone": cfg["timezone"],
