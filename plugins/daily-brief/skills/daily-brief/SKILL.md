@@ -145,7 +145,7 @@ These come from the claude.ai connectors (Google Calendar, Slack, Gmail), which 
 
 **Meeting notes & recordings** (skip if `recordings.meetings_folder_id` is empty). Load the Google Drive tools with ToolSearch.
 
-1. **File new meeting files.** Do this once per run, in the first profile's turn, from the **oldest** `created_after` among the profiles in this run, since a profile whose last brief failed has an older window. Later profiles reuse the result and keep only files whose `createdTime` is after their own `created_after`.
+1. **File new meeting files.** Do this once per distinct `meetings_folder_id` in the run, in the turn of the first profile that uses it, from the **oldest** `created_after` among the profiles that share that folder, since a profile whose last brief failed has an older window. Later profiles with the same folder reuse the result and keep only files whose `createdTime` is after their own `created_after`.
    1. Find the files Meet, Gemini and Zoom wrote since the last brief with `mcp__claude_ai_Google_Drive__search_files`, `excludeContentSnippets: true`, query `createdTime > '<created_after>' and owner = 'me' and mimeType != 'application/vnd.google-apps.folder' and (title contains 'Notes by Gemini' or title contains 'Recording' or title contains 'Transcript' or title contains 'Chat' or title contains 'Meeting Summary' or title contains 'Meeting Notes' or mimeType contains 'video/' or mimeType contains 'audio/')`.
    2. Look up each file's parent title with `get_file_metadata` on its `parentId`; the parent title names untitled Zoom files. Drop files whose parent is already a meeting folder, that is, one whose own parent is `meetings_folder_id`.
    3. List the existing meeting folders for `folder_days`: `parentId = '<meetings_folder_id>' and mimeType = 'application/vnd.google-apps.folder' and (title contains '<day1>' or …)`. Drive matches the date loosely, so keep only folders whose title starts with one of the days.
@@ -154,7 +154,10 @@ These come from the claude.ai connectors (Google Calendar, Slack, Gmail), which 
    6. Never rename, trash or delete a file. If a move fails, for example on a file another account owns, leave the file where it is and note it in the owner's footer.
 2. **Pick the meetings for this brief.** These are the meeting folders that received files in this run, or whose files have `createdTime` after `created_after`.
    - When `all_meetings` is true, keep every one.
-   - Otherwise keep a meeting only if one of `attendee_emails` was invited. Check the event on `calendar_id` (`list_events` from `events_start_local` to `events_end_local`) that starts within 30 minutes of the folder's time, where they must not have declined. Failing that, check the `Invited` line of the Gemini notes doc.
+   - Otherwise keep a meeting only if one of `attendee_emails` was invited to **that** meeting.
+     - **Calendar check.** Use `list_events` on `calendar_id` from `events_start_local` to `events_end_local`. An event counts as this meeting only if it starts within 30 minutes of the folder's time **and** its title matches the folder's meeting name (ignoring case and punctuation, or one contains the other), or its Meet link has the folder's Meet code. The person must be a non-declining attendee of that event.
+     - **Notes check.** If no event matches, use the `Invited` line of the meeting's own Gemini notes doc.
+     - Time alone is never enough: two meetings can overlap.
    - Leave out meetings that show no sign of the person, such as ad-hoc Zoom calls, unless `all_meetings` is true.
 3. **Summarize each meeting.** Read the notes or summary doc with `mcp__claude_ai_Google_Drive__read_file_content`, at most six docs per brief.
    - A Gemini "Notes by Gemini" doc has a quick-notes summary, then **Decisions**, **Next steps** and **Details**, then the full transcript in a tab. Its `Meeting records [Transcript](…)` link points to that tab; use it as the meeting's transcript link when there is no separate transcript file.

@@ -58,6 +58,31 @@ def kind_of(f):
     return "other"
 
 
+# Abbreviations Meet writes in titles. They are ambiguous worldwide (IST, CST), so
+# only unambiguous ones map to a zone; anything else is read in the profile's zone.
+ZONE_ABBREVIATIONS = {
+    "EDT": "America/New_York", "EST": "America/New_York",
+    "CDT": "America/Chicago", "MDT": "America/Denver", "MST": "America/Denver",
+    "PDT": "America/Los_Angeles", "PST": "America/Los_Angeles",
+    "AKDT": "America/Anchorage", "AKST": "America/Anchorage", "HST": "Pacific/Honolulu",
+    "BST": "Europe/London", "GMT": "Etc/UTC", "UTC": "Etc/UTC",
+    "WET": "Europe/Lisbon", "WEST": "Europe/Lisbon",
+    "CET": "Europe/Paris", "CEST": "Europe/Paris", "EET": "Europe/Athens", "EEST": "Europe/Athens",
+    "JST": "Asia/Tokyo", "KST": "Asia/Seoul", "SGT": "Asia/Singapore", "HKT": "Asia/Hong_Kong",
+    "AEST": "Australia/Sydney", "AEDT": "Australia/Sydney", "NZST": "Pacific/Auckland",
+    "NZDT": "Pacific/Auckland",
+}
+
+
+def zone_of(token, default):
+    m = re.fullmatch(r"GMT([-+])(\d{1,2})(?::?(\d{2}))?", token)
+    if m:
+        delta = timedelta(hours=int(m[2]), minutes=int(m[3] or 0))
+        return timezone(-delta if m[1] == "-" else delta)
+    name = ZONE_ABBREVIATIONS.get(token)
+    return ZoneInfo(name) if name else default
+
+
 def parse_title(title, tz):
     """Return (start, has_time, name, strong) from a file title; start is a datetime or date.
 
@@ -65,22 +90,21 @@ def parse_title(title, tz):
     notes, Meet recordings and chats, Zoom cloud recordings, meeting notes/summaries).
     A bare date or a recorder timestamp is weak evidence: such a file is filed only
     when it joins a meeting that has strong evidence or an existing folder."""
-    m = re.match(r"(?P<n>.*?) - (?P<d>\d{4}/\d{2}/\d{2}) (?P<t>\d{2}:\d{2}) E[DS]T(?: - (?P<s>.*))?$", title)
+    # Meet/Gemini: "<meeting> - 2026/10/14 11:01 EDT - Notes by Gemini"; downloads
+    # spell it "2026_07_14 11_59 PDT".
+    m = re.match(r"(?P<n>.*?) - (?P<d>\d{4}[/_]\d{2}[/_]\d{2}) (?P<h>\d{2})[:_](?P<mi>\d{2}) "
+                 r"(?P<z>[A-Z]{2,5}|GMT[-+]\d{1,2}(?::?\d{2})?)(?: - (?P<s>.*))?$", title)
     if m:
-        start = datetime.strptime(f"{m['d']} {m['t']}", "%Y/%m/%d %H:%M").replace(tzinfo=ZoneInfo("America/New_York"))
+        start = datetime.strptime(f"{m['d'].replace('_', '/')} {m['h']}:{m['mi']}", "%Y/%m/%d %H:%M")
+        start = start.replace(tzinfo=zone_of(m["z"], tz))
         name = None if m["n"].startswith("Meeting started") else m["n"]
         return start.astimezone(tz), True, name, bool(MEET_SUFFIX.fullmatch(m["s"] or ""))
-    m = re.match(r"(?P<n>.*?) - (?P<d>\d{4}_\d{2}_\d{2}) (?P<h>\d{2})_(?P<mi>\d{2}) P[DS]T - (?P<s>.*)", title)
-    if m:
-        start = datetime.strptime(f"{m['d']} {m['h']}{m['mi']}", "%Y_%m_%d %H%M").replace(
-            tzinfo=ZoneInfo("America/Los_Angeles"))
-        return start.astimezone(tz), True, m["n"], bool(MEET_SUFFIX.fullmatch(m["s"]))
     m = re.match(rf"Meeting Summary — (?P<n>.*?) — (?P<d>(?:{MONTHS}) \d{{1,2}}, \d{{4}})", title)
     if m:
         return datetime.strptime(m["d"], "%B %d, %Y").date(), False, m["n"], True
-    m = re.match(r"Meeting started (?P<d>\d{4}/\d{2}/\d{2}) (?P<t>\d{2}:\d{2}) E[DS]T", title)
+    m = re.match(r"Meeting started (?P<d>\d{4}/\d{2}/\d{2}) (?P<t>\d{2}:\d{2}) (?P<z>[A-Z]{2,5}|GMT[-+]\d{1,2}(?::?\d{2})?)", title)
     if m:
-        start = datetime.strptime(f"{m['d']} {m['t']}", "%Y/%m/%d %H:%M").replace(tzinfo=ZoneInfo("America/New_York"))
+        start = datetime.strptime(f"{m['d']} {m['t']}", "%Y/%m/%d %H:%M").replace(tzinfo=zone_of(m["z"], tz))
         return start.astimezone(tz), True, None, True
     m = re.match(r"(?P<code>[a-z]{3}-[a-z]{4}-[a-z]{3}) \((?P<d>\d{4}-\d{2}-\d{2}) (?P<t>\d{2}:\d{2}) GMT(?P<o>[-+]\d+)\)", title)
     if m:
@@ -140,12 +164,17 @@ def norm(name):
     return re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).strip()
 
 
-def names_compatible(name, names):
-    """Two real meeting names that differ mean two meetings, even at the same time."""
+def names_compatible(name, names, strict=False):
+    """Two real meeting names that differ mean two meetings, even at the same time.
+
+    `strict` is for files with no meeting-specific title: a named one (say a screen
+    recording) joins only a meeting with a matching real name, never an unnamed one."""
     if is_placeholder(name):
         return True
     real = [n for n in names if not is_placeholder(n)]
-    return not real or any(norm(name) == norm(n) or norm(name) in norm(n) or norm(n) in norm(name)
+    if not real:
+        return not strict
+    return any(norm(name) == norm(n) or norm(name) in norm(n) or norm(n) in norm(name)
                            for n in real)
 
 
@@ -187,10 +216,12 @@ def plan(files, folders, tz, allow_weak=False):
                 continue
             if it["has_time"] and g["start"] is not None:
                 gap = abs((it["start"] - g["start"]).total_seconds())
-                if gap <= GROUP_MINUTES * 60 and names_compatible(it["name"], g["names"]):
+                if gap <= GROUP_MINUTES * 60 and names_compatible(it["name"], g["names"],
+                                                                  strict=not it["strong"]):
                     if best is None or gap < best:
                         target, best = g, gap
-            elif target is None and norm(it["name"]) in {norm(n) for n in g["names"]}:
+            elif (target is None and not is_placeholder(it["name"])
+                  and norm(it["name"]) in {norm(n) for n in g["names"]}):
                 target = g
         if target is None:
             target = {"day": day, "start": it["start"] if it["has_time"] else None,
