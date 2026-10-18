@@ -21,6 +21,7 @@ The script only gathers facts. Ranking, urgency calls and prose are the skill's 
 Usage:
   collect.py --profile NAME [--since ISO8601|auto] [--config PATH] [--skip-if-sent-within H]
   collect.py --profile NAME --mark-sent   # record now as this profile's last-brief time
+  collect.py --profile NAME --mark-meetings-reported ID,ID   # meeting folders this brief covered
   collect.py --list-profiles              # names, recipients and schedules (JSON)
   collect.py --profile NAME --show-config # print one profile's resolved config
 --profile may be omitted when the config has a single profile.
@@ -66,6 +67,8 @@ DEFAULT_CONFIG = {
     "calendar_id": "",            # shared calendar to read meetings from (e.g. admin@novaserve.ai)
     "slack_channels": [],         # [{"name": "technology", "id": "C…"}] summarized for everyone
     "evening_after_hour": 15,     # a run at/after this local hour previews tomorrow's meetings
+    "meetings_folder_id": "",     # Drive folder holding one folder per meeting; empty → no recordings section
+    "meetings_timezone": "",      # zone of the meeting folders' names; empty → the shared top-level timezone
 }
 
 NOISE_PREFIXES = ("<local-command", "<command-name>", "<command-message>",
@@ -103,6 +106,9 @@ def load_profiles(path):
         if not cfg["github_user"]:
             cfg["github_user"] = gh_text(["api", "user", "-q", ".login"]) or ""
         cfg["name"] = entry.get("name") or cfg["github_user"]
+        # One zone for meeting-folder names, whichever profile happens to file them.
+        cfg["meetings_timezone"] = (cfg["meetings_timezone"]
+                                    or shared.get("timezone") or DEFAULT_CONFIG["timezone"])
         cfg["repos"] = [r if "/" in r else f"{cfg['org']}/{r}" for r in cfg["repos"]]
         cfg["exclude_repos"] = [r if "/" in r else f"{cfg['org']}/{r}" for r in cfg["exclude_repos"]]
         profiles[cfg["name"]] = cfg
@@ -505,6 +511,34 @@ def mark_sent(cfg):
     print(f"recorded last_sent={iso(now_utc())} for profile {cfg['name']}")
 
 
+def folder_days(since, zone):
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(zone)
+    except Exception:
+        tz = timezone.utc
+    first = since.astimezone(tz).date() - timedelta(days=1)
+    last = now_utc().astimezone(tz).date()
+    return [(first + timedelta(days=d)).isoformat() for d in range((last - first).days + 1)]
+
+
+def reported_meetings(cfg):
+    path = profile_dir(cfg) / "reported_meetings.json"
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return []
+
+
+def mark_meetings_reported(cfg, ids):
+    """Remember which meeting folders this profile was told about (newest 300)."""
+    seen = [i for i in reported_meetings(cfg) if i not in ids] + ids
+    d = profile_dir(cfg)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "reported_meetings.json").write_text(json.dumps(seen[-300:]))
+    print(f"recorded {len(ids)} reported meeting folder(s) for profile {cfg['name']}")
+
+
 def build_context(cfg, since):
     """Windows and identities for the connector reads the skill performs."""
     try:
@@ -545,6 +579,24 @@ def build_context(cfg, since):
             "whole_mailbox": cfg["owner"],
             "after_query": f"after:{int(since.timestamp())}",
         },
+        # Meeting recordings, transcripts and notes that landed in Drive since the
+        # last brief. Meetings that started up to a day before `since` still count:
+        # Meet and Gemini often finish writing files an hour or more after the call.
+        "recordings": {
+            "meetings_folder_id": cfg["meetings_folder_id"],
+            "folder_timezone": cfg["meetings_timezone"],
+            "calendar_id": cfg["calendar_id"],
+            "created_after": iso(since),
+            # Every day from the one before `since` through today, in the folders'
+            # own zone, so a late file finds its meeting's existing folder.
+            "folder_days": folder_days(since, cfg["meetings_timezone"]),
+            "events_start_local": (since.astimezone(tz) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S"),
+            "events_end_local": now.strftime("%Y-%m-%dT%H:%M:%S"),
+            "timezone": cfg["timezone"],
+            "attendee_emails": aliases,
+            "all_meetings": cfg["owner"],
+            "already_reported": reported_meetings(cfg),
+        },
     }
 
 
@@ -571,6 +623,8 @@ def main():
     ap.add_argument("--since", default="auto")
     ap.add_argument("--config", type=Path, default=CONFIG_PATH)
     ap.add_argument("--mark-sent", action="store_true")
+    ap.add_argument("--mark-meetings-reported", metavar="IDS",
+                    help="comma-separated meeting folder IDs this profile's brief covered")
     ap.add_argument("--show-config", action="store_true")
     args = ap.parse_args()
 
@@ -581,8 +635,11 @@ def main():
                           for p in profiles.values()], indent=2))
         return
     cfg = pick_profile(profiles, args.profile)
-    if args.mark_sent:
-        mark_sent(cfg)
+    if args.mark_sent or args.mark_meetings_reported is not None:
+        if args.mark_meetings_reported:
+            mark_meetings_reported(cfg, [i for i in args.mark_meetings_reported.split(",") if i])
+        if args.mark_sent:
+            mark_sent(cfg)
         return
     if args.show_config:
         print(json.dumps({**cfg, "_path": str(args.config)}, indent=2))
