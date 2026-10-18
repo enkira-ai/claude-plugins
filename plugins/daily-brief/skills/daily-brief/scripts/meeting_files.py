@@ -110,10 +110,10 @@ def parse_title(title, tz):
     if m:
         start = datetime.strptime(f"{m['d']} {m['t']}", "%Y/%m/%d %H:%M").replace(tzinfo=zone_of(m["z"], tz))
         return start.astimezone(tz), True, None, True
-    m = re.match(r"(?P<code>[a-z]{3}-[a-z]{4}-[a-z]{3}) \((?P<d>\d{4}-\d{2}-\d{2}) (?P<t>\d{2}:\d{2}) GMT(?P<o>[-+]\d+)\)", title)
+    m = re.match(r"(?P<code>[a-z]{3}-[a-z]{4}-[a-z]{3}) \((?P<d>\d{4}-\d{2}-\d{2}) (?P<t>\d{2}:\d{2}) (?P<z>GMT(?:[-+]\d{1,2}(?::?\d{2})?)?)\)", title)
     if m:
         start = datetime.strptime(f"{m['d']} {m['t']}", "%Y-%m-%d %H:%M").replace(
-            tzinfo=timezone(timedelta(hours=int(m["o"]))))
+            tzinfo=zone_of(m["z"], tz))
         return start.astimezone(tz), True, None, True
     m = re.match(r"GMT(?P<d>\d{8})-(?P<t>\d{6})_", title)  # Zoom: UTC start time
     if m:
