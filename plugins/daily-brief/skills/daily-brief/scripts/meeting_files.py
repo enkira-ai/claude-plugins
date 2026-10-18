@@ -62,20 +62,16 @@ def kind_of(f):
     return "other"
 
 
-# Abbreviations Meet writes in titles. They are ambiguous worldwide (IST, CST), so
-# only unambiguous ones map to a zone; anything else is read in the profile's zone.
-ZONE_ABBREVIATIONS = {
-    "EDT": "America/New_York", "EST": "America/New_York",
-    "CDT": "America/Chicago", "MDT": "America/Denver", "MST": "America/Denver",
-    "PDT": "America/Los_Angeles", "PST": "America/Los_Angeles",
-    "AKDT": "America/Anchorage", "AKST": "America/Anchorage", "HST": "Pacific/Honolulu",
-    "BST": "Europe/London", "GMT": "Etc/UTC", "UTC": "Etc/UTC",
-    "WET": "Europe/Lisbon", "WEST": "Europe/Lisbon",
-    "CET": "Europe/Paris", "CEST": "Europe/Paris", "EET": "Europe/Athens", "EEST": "Europe/Athens",
-    "JST": "Asia/Tokyo", "KST": "Asia/Seoul", "SGT": "Asia/Singapore", "HKT": "Asia/Hong_Kong",
-    "AEST": "Australia/Sydney", "AEDT": "Australia/Sydney", "NZST": "Pacific/Auckland",
-    "NZDT": "Pacific/Auckland",
+# Abbreviations Meet writes in titles, as the fixed offset each one states (AEST is
+# +10 even while Sydney is on AEDT). Ambiguous ones (CST, IST) are left out and
+# read in the profile's zone.
+ZONE_OFFSETS = {
+    "EDT": -4, "EST": -5, "CDT": -5, "MDT": -6, "MST": -7, "PDT": -7, "PST": -8,
+    "AKDT": -8, "AKST": -9, "HST": -10,
+    "GMT": 0, "UTC": 0, "WET": 0, "WEST": 1, "BST": 1, "CET": 1, "CEST": 2, "EET": 2, "EEST": 3,
+    "SGT": 8, "HKT": 8, "JST": 9, "KST": 9, "AEST": 10, "AEDT": 11, "NZST": 12, "NZDT": 13,
 }
+ZONE_TOKEN = r"(?:[A-Z]{2,5}|GMT[-+]\d{1,2}(?::?\d{2})?)"
 
 
 def zone_of(token, default):
@@ -83,8 +79,8 @@ def zone_of(token, default):
     if m:
         delta = timedelta(hours=int(m[2]), minutes=int(m[3] or 0))
         return timezone(-delta if m[1] == "-" else delta)
-    name = ZONE_ABBREVIATIONS.get(token)
-    return ZoneInfo(name) if name else default
+    hours = ZONE_OFFSETS.get(token)
+    return timezone(timedelta(hours=hours)) if hours is not None else default
 
 
 def parse_title(title, tz):
@@ -191,7 +187,7 @@ def plan(files, folders, tz, allow_weak=False):
         start, has_time, name, strong = parse_title(f["title"], tz)
         # A Google Doc with Meet's timestamp is Gemini notes someone renamed.
         if (not strong and f.get("mimeType") == "application/vnd.google-apps.document"
-                and re.search(r" - \d{4}/\d{2}/\d{2} \d{2}:\d{2} E[DS]T - ", f["title"])):
+                and re.search(rf" - \d{{4}}/\d{{2}}/\d{{2}} \d{{2}}:\d{{2}} {ZONE_TOKEN} - ", f["title"])):
             strong = True
         if start is None:
             unplaced.append({"id": f["id"], "title": f["title"], "why": "no date or time in the title"})
