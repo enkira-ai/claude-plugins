@@ -31,6 +31,8 @@ from zoneinfo import ZoneInfo
 GROUP_MINUTES = 20
 GENERIC_PARENTS = {"meet recordings", "google meet", "recordings"}
 MEET_CODE = re.compile(r"[a-z]{3}-[a-z]{4}-[a-z]{3}")
+# What Meet and Gemini append after the timestamp ("… - 2026/10/14 11:01 EDT - Recording").
+MEET_SUFFIX = re.compile(r"(Notes by Gemini|Recording|Chat|Transcript)(\.\w{2,4})?", re.I)
 MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December"
 
 
@@ -63,16 +65,16 @@ def parse_title(title, tz):
     notes, Meet recordings and chats, Zoom cloud recordings, meeting notes/summaries).
     A bare date or a recorder timestamp is weak evidence: such a file is filed only
     when it joins a meeting that has strong evidence or an existing folder."""
-    m = re.match(r"(?P<n>.*?) - (?P<d>\d{4}/\d{2}/\d{2}) (?P<t>\d{2}:\d{2}) E[DS]T(?: - .*)?$", title)
+    m = re.match(r"(?P<n>.*?) - (?P<d>\d{4}/\d{2}/\d{2}) (?P<t>\d{2}:\d{2}) E[DS]T(?: - (?P<s>.*))?$", title)
     if m:
         start = datetime.strptime(f"{m['d']} {m['t']}", "%Y/%m/%d %H:%M").replace(tzinfo=ZoneInfo("America/New_York"))
         name = None if m["n"].startswith("Meeting started") else m["n"]
-        return start.astimezone(tz), True, name, True
-    m = re.match(r"(?P<n>.*?) - (?P<d>\d{4}_\d{2}_\d{2}) (?P<h>\d{2})_(?P<mi>\d{2}) P[DS]T - .*", title)
+        return start.astimezone(tz), True, name, bool(MEET_SUFFIX.fullmatch(m["s"] or ""))
+    m = re.match(r"(?P<n>.*?) - (?P<d>\d{4}_\d{2}_\d{2}) (?P<h>\d{2})_(?P<mi>\d{2}) P[DS]T - (?P<s>.*)", title)
     if m:
         start = datetime.strptime(f"{m['d']} {m['h']}{m['mi']}", "%Y_%m_%d %H%M").replace(
             tzinfo=ZoneInfo("America/Los_Angeles"))
-        return start.astimezone(tz), True, m["n"], True
+        return start.astimezone(tz), True, m["n"], bool(MEET_SUFFIX.fullmatch(m["s"]))
     m = re.match(rf"Meeting Summary — (?P<n>.*?) — (?P<d>(?:{MONTHS}) \d{{1,2}}, \d{{4}})", title)
     if m:
         return datetime.strptime(m["d"], "%B %d, %Y").date(), False, m["n"], True
@@ -152,6 +154,10 @@ def plan(files, folders, tz, allow_weak=False):
     for f in files:
         f = dict(f, title=html.unescape(f.get("title") or ""))
         start, has_time, name, strong = parse_title(f["title"], tz)
+        # A Google Doc with Meet's timestamp is Gemini notes someone renamed.
+        if (not strong and f.get("mimeType") == "application/vnd.google-apps.document"
+                and re.search(r" - \d{4}/\d{2}/\d{2} \d{2}:\d{2} E[DS]T - ", f["title"])):
+            strong = True
         if start is None:
             unplaced.append({"id": f["id"], "title": f["title"], "why": "no date or time in the title"})
             continue
@@ -192,8 +198,8 @@ def plan(files, folders, tz, allow_weak=False):
             groups.append(target)
         target["items"].append(it)
         target["names"].add(it["name"])
-        if target["start"] is None and it["has_time"] and target["folder_id"] is None:
-            target["start"] = it["start"]
+        if target["start"] is None and it["has_time"]:
+            target["start"] = it["start"]  # a date-only folder keeps its name, but gains a time
 
     out = []
     for g in sorted(groups, key=lambda g: (g["day"], str(g["start"]))):
