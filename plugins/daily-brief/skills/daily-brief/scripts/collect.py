@@ -167,6 +167,7 @@ def slim_item(item, body_chars):
         "state": item.get("state"),
         "created": item.get("createdAt"),
         "updated": item.get("updatedAt"),
+        "closed": item.get("closedAt"),
         "labels": [l.get("name") for l in item.get("labels") or []],
     }
     for key in ("isDraft", "reviewDecision", "mergeable", "headRefName", "commentsCount"):
@@ -241,10 +242,10 @@ def collect_github(cfg, since, errors):
                     "--json", "sha,commit,url"],
         "merged_prs": ["search", "prs", f"--author={user}", f"--owner={org}",
                        f"--merged-at=>={day}", "--limit=30", "--json",
-                       "number,title,url,repository,createdAt,updatedAt,labels"],
+                       "number,title,url,repository,createdAt,updatedAt,closedAt,labels"],
         "closed_issues": ["search", "issues", f"--assignee={user}", f"--owner={org}",
                           f"--closed=>={day}", "--limit=30", "--json",
-                          "number,title,url,repository,createdAt,updatedAt,labels,state"],
+                          "number,title,url,repository,createdAt,updatedAt,closedAt,labels,state"],
     })
     for repo in cfg["repos"]:
         jobs[f"new_prs:{repo}"] = ["pr", "list", "-R", repo, "--state=all", "--limit=50",
@@ -283,24 +284,28 @@ def collect_github(cfg, since, errors):
             it["_repo"] = repo
         return items
 
+    # gh's date qualifiers (`created:>=DATE`, `--merged-at`, `--closed`, …) are
+    # day-granular, so a search also returns what happened earlier that day, which
+    # the previous brief already reported. Keep only items whose `field` is at or
+    # after `since`; an item without a timestamp is kept rather than lost.
+    def since_last(items, field):
+        return [i for i in items if (parse_ts(i.get(field)) or since) >= since]
+
+    def fresh(item):
+        return bool(since_last([item], "created"))
+
     out = {
         "review_requested": [slim_item(i, n) for i in raw["review_requested"]],
         "assigned_issues": [slim_item(i, n) for i in raw["assigned_issues"]],
-        "mentions": [slim_item(i, n) for i in raw["mentions"]],
+        "mentions": since_last([slim_item(i, n) for i in raw["mentions"]], "updated"),
         "my_open_prs": [],
         "new_in_watched_repos": {},
         "activity": {
-            "commits": [slim_commit(c) for c in raw["commits"]
-                        if (parse_ts(slim_commit(c)["date"]) or since) >= since],
-            "merged_prs": [slim_item(i, n) for i in raw["merged_prs"]],
-            "closed_issues": [slim_item(i, n) for i in raw["closed_issues"]],
+            "commits": since_last([slim_commit(c) for c in raw["commits"]], "date"),
+            "merged_prs": since_last([slim_item(i, n) for i in raw["merged_prs"]], "closed"),
+            "closed_issues": since_last([slim_item(i, n) for i in raw["closed_issues"]], "closed"),
         },
     }
-
-    # gh's `created:>=DATE` is day-granular; drop anything older than `since`.
-    def fresh(item):
-        ts = parse_ts(item.get("created"))
-        return ts is None or ts >= since
 
     # Review requests drive the urgency ranking, so give each one size, CI, review
     # state and the issues it closes (whose descriptions often carry the urgency).
@@ -339,8 +344,7 @@ def collect_github(cfg, since, errors):
         out["new_in_watched_repos"][repo] = {
             "prs": [p for p in (slim_item(i, n) for i in tag(raw[f"new_prs:{repo}"], repo)) if fresh(p)],
             "issues": [p for p in (slim_item(i, n) for i in tag(raw[f"new_issues:{repo}"], repo)) if fresh(p)],
-            "merged": [merged_item(i, repo) for i in raw[f"merged:{repo}"]
-                       if (parse_ts(i.get("mergedAt")) or since) >= since],
+            "merged": since_last([merged_item(i, repo) for i in raw[f"merged:{repo}"]], "merged"),
         }
     # Open PRs of mine outside the watched repos (no CI detail, but don't lose them).
     for item in raw["my_open_prs_all"]:
