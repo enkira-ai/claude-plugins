@@ -16,7 +16,7 @@ Output (stdout): JSON
 `folder_id` is set when the meeting already has a folder; otherwise create `folder`.
 
 Usage:
-  meeting_files.py [--timezone America/New_York] < input.json
+  meeting_files.py [--timezone America/New_York] [--allow-weak] < input.json
 """
 
 import argparse
@@ -57,51 +57,59 @@ def kind_of(f):
 
 
 def parse_title(title, tz):
-    """Return (start, has_time, name) from a file title; start is a datetime or date."""
+    """Return (start, has_time, name, strong) from a file title; start is a datetime or date.
+
+    `strong` means the title format itself says this is a meeting artifact (Gemini
+    notes, Meet recordings and chats, Zoom cloud recordings, meeting notes/summaries).
+    A bare date or a recorder timestamp is weak evidence: such a file is filed only
+    when it joins a meeting that has strong evidence or an existing folder."""
     m = re.match(r"(?P<n>.*?) - (?P<d>\d{4}/\d{2}/\d{2}) (?P<t>\d{2}:\d{2}) E[DS]T(?: - .*)?$", title)
     if m:
         start = datetime.strptime(f"{m['d']} {m['t']}", "%Y/%m/%d %H:%M").replace(tzinfo=ZoneInfo("America/New_York"))
         name = None if m["n"].startswith("Meeting started") else m["n"]
-        return start.astimezone(tz), True, name
+        return start.astimezone(tz), True, name, True
     m = re.match(r"(?P<n>.*?) - (?P<d>\d{4}_\d{2}_\d{2}) (?P<h>\d{2})_(?P<mi>\d{2}) P[DS]T - .*", title)
     if m:
         start = datetime.strptime(f"{m['d']} {m['h']}{m['mi']}", "%Y_%m_%d %H%M").replace(
             tzinfo=ZoneInfo("America/Los_Angeles"))
-        return start.astimezone(tz), True, m["n"]
+        return start.astimezone(tz), True, m["n"], True
     m = re.match(rf"Meeting Summary — (?P<n>.*?) — (?P<d>(?:{MONTHS}) \d{{1,2}}, \d{{4}})", title)
     if m:
-        return datetime.strptime(m["d"], "%B %d, %Y").date(), False, m["n"]
+        return datetime.strptime(m["d"], "%B %d, %Y").date(), False, m["n"], True
     m = re.match(r"Meeting started (?P<d>\d{4}/\d{2}/\d{2}) (?P<t>\d{2}:\d{2}) E[DS]T", title)
     if m:
         start = datetime.strptime(f"{m['d']} {m['t']}", "%Y/%m/%d %H:%M").replace(tzinfo=ZoneInfo("America/New_York"))
-        return start.astimezone(tz), True, None
+        return start.astimezone(tz), True, None, True
     m = re.match(r"(?P<code>[a-z]{3}-[a-z]{4}-[a-z]{3}) \((?P<d>\d{4}-\d{2}-\d{2}) (?P<t>\d{2}:\d{2}) GMT(?P<o>[-+]\d+)\)", title)
     if m:
         start = datetime.strptime(f"{m['d']} {m['t']}", "%Y-%m-%d %H:%M").replace(
             tzinfo=timezone(timedelta(hours=int(m["o"]))))
-        return start.astimezone(tz), True, None
+        return start.astimezone(tz), True, None, True
     m = re.match(r"GMT(?P<d>\d{8})-(?P<t>\d{6})_", title)  # Zoom: UTC start time
     if m:
         start = datetime.strptime(m["d"] + m["t"], "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
-        return start.astimezone(tz), True, None
+        return start.astimezone(tz), True, None, True
     m = re.match(r"GMT(?P<d>\d{8})[-_](?P<rest>.*)\.\w+$", title)
     if m:
+        notes = "Meeting Notes" in m["rest"]
         rest = re.sub(r"^Meeting Notes-\s*", "", m["rest"]).replace("-", " ")
-        return datetime.strptime(m["d"], "%Y%m%d").date(), False, rest
+        return datetime.strptime(m["d"], "%Y%m%d").date(), False, rest, notes
     m = re.match(r"(?P<d>20\d{6})-(?P<rest>.*)\.\w+$", title)
     if m:
-        return datetime.strptime(m["d"], "%Y%m%d").date(), False, m["rest"].replace("-", " ")
+        return datetime.strptime(m["d"], "%Y%m%d").date(), False, m["rest"].replace("-", " "), False
     m = re.match(r"[0-9a-f-]{36}-(?P<e>\d{10,13})(?: \(\d+\))?\.\w+$", title)
     if m:
         epoch = int(m["e"])
-        return datetime.fromtimestamp(epoch / 1000 if epoch > 1e11 else epoch, tz), True, None
+        return datetime.fromtimestamp(epoch / 1000 if epoch > 1e11 else epoch, tz), True, None, False
     m = re.search(rf"(?:{MONTHS}) \d{{1,2}}, \d{{4}}", title)
     if m:
-        return datetime.strptime(m.group(0), "%B %d, %Y").date(), False, None
+        notes = bool(re.search(r"meeting (summary|notes)", title, re.I))
+        return datetime.strptime(m.group(0), "%B %d, %Y").date(), False, None, notes
     m = re.search(r"\d{4}-\d{2}-\d{2}", title)
     if m:
-        return datetime.strptime(m.group(0), "%Y-%m-%d").date(), False, None
-    return None, False, None
+        notes = bool(re.search(r"meeting (summary|notes)", title, re.I))
+        return datetime.strptime(m.group(0), "%Y-%m-%d").date(), False, None, notes
+    return None, False, None, False
 
 
 def parse_folder(title, tz):
@@ -126,11 +134,24 @@ def is_placeholder(name):
     return not name or name == "Meeting" or MEET_CODE.fullmatch(name)
 
 
-def plan(files, folders, tz):
+def norm(name):
+    return re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).strip()
+
+
+def names_compatible(name, names):
+    """Two real meeting names that differ mean two meetings, even at the same time."""
+    if is_placeholder(name):
+        return True
+    real = [n for n in names if not is_placeholder(n)]
+    return not real or any(norm(name) == norm(n) or norm(name) in norm(n) or norm(n) in norm(name)
+                           for n in real)
+
+
+def plan(files, folders, tz, allow_weak=False):
     items, unplaced = [], []
     for f in files:
         f = dict(f, title=html.unescape(f.get("title") or ""))
-        start, has_time, name = parse_title(f["title"], tz)
+        start, has_time, name, strong = parse_title(f["title"], tz)
         if start is None:
             unplaced.append({"id": f["id"], "title": f["title"], "why": "no date or time in the title"})
             continue
@@ -139,42 +160,50 @@ def plan(files, folders, tz):
             code = MEET_CODE.match(f["title"])
             name = code.group(0) if code else "Meeting"
         items.append({"f": f, "start": start, "has_time": has_time, "name": clean_name(name),
-                      "kind": kind_of(f)})
+                      "kind": kind_of(f), "strong": strong or allow_weak})
 
     groups = []
     for folder in folders:
         parsed = parse_folder(html.unescape(folder["title"]), tz)
         if parsed:
             day, start, name = parsed
-            groups.append({"day": day, "start": start, "names": {name.lower()}, "items": [],
+            groups.append({"day": day, "start": start, "names": {name}, "items": [],
                            "folder": folder["title"], "folder_id": folder["id"]})
 
     items.sort(key=lambda i: str(i["start"]))
     for it in items:
         day = str(it["start"])[:10]
-        target = None
+        # Join the closest compatible meeting that day: within GROUP_MINUTES when both
+        # have a time, otherwise by name.
+        target, best = None, None
         for g in groups:
             if g["day"] != day:
                 continue
             if it["has_time"] and g["start"] is not None:
-                if abs((it["start"] - g["start"]).total_seconds()) <= GROUP_MINUTES * 60:
-                    target = g
-            elif it["name"].lower() in g["names"]:
+                gap = abs((it["start"] - g["start"]).total_seconds())
+                if gap <= GROUP_MINUTES * 60 and names_compatible(it["name"], g["names"]):
+                    if best is None or gap < best:
+                        target, best = g, gap
+            elif target is None and norm(it["name"]) in {norm(n) for n in g["names"]}:
                 target = g
-            if target:
-                break
         if target is None:
             target = {"day": day, "start": it["start"] if it["has_time"] else None,
                       "names": set(), "items": [], "folder": None, "folder_id": None}
             groups.append(target)
         target["items"].append(it)
-        target["names"].add(it["name"].lower())
+        target["names"].add(it["name"])
         if target["start"] is None and it["has_time"] and target["folder_id"] is None:
             target["start"] = it["start"]
 
     out = []
     for g in sorted(groups, key=lambda g: (g["day"], str(g["start"]))):
         if not g["items"]:
+            continue
+        # Only file a meeting the titles vouch for, or one that already has a folder.
+        # Screen captures, voice memos and other dated media stay where they are.
+        if g["folder_id"] is None and not any(i["strong"] for i in g["items"]):
+            unplaced.extend({"id": i["f"]["id"], "title": i["f"]["title"],
+                             "why": "no sign this is a meeting file"} for i in g["items"])
             continue
         if g["folder"] is None:
             names = [i["name"] for i in g["items"] if not is_placeholder(i["name"])] or \
@@ -192,9 +221,12 @@ def plan(files, folders, tz):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--timezone", default="America/New_York")
+    ap.add_argument("--allow-weak", action="store_true",
+                    help="also file dated files with no meeting-specific title (one-off clean-ups of a known meetings folder)")
     args = ap.parse_args()
     data = json.load(sys.stdin)
-    json.dump(plan(data.get("files", []), data.get("folders", []), ZoneInfo(args.timezone)),
+    json.dump(plan(data.get("files", []), data.get("folders", []), ZoneInfo(args.timezone),
+                   args.allow_weak),
               sys.stdout, indent=1, ensure_ascii=False)
     print()
 
