@@ -67,6 +67,7 @@ DEFAULT_CONFIG = {
     "slack_channels": [],         # [{"name": "technology", "id": "C…"}] summarized for everyone
     "evening_after_hour": 15,     # a run at/after this local hour previews tomorrow's meetings
     "meetings_folder_id": "",     # Drive folder holding one folder per meeting; empty → no recordings section
+    "meetings_timezone": "",      # zone of the meeting folders' names; empty → the shared top-level timezone
 }
 
 NOISE_PREFIXES = ("<local-command", "<command-name>", "<command-message>",
@@ -104,6 +105,9 @@ def load_profiles(path):
         if not cfg["github_user"]:
             cfg["github_user"] = gh_text(["api", "user", "-q", ".login"]) or ""
         cfg["name"] = entry.get("name") or cfg["github_user"]
+        # One zone for meeting-folder names, whichever profile happens to file them.
+        cfg["meetings_timezone"] = (cfg["meetings_timezone"]
+                                    or shared.get("timezone") or DEFAULT_CONFIG["timezone"])
         cfg["repos"] = [r if "/" in r else f"{cfg['org']}/{r}" for r in cfg["repos"]]
         cfg["exclude_repos"] = [r if "/" in r else f"{cfg['org']}/{r}" for r in cfg["exclude_repos"]]
         profiles[cfg["name"]] = cfg
@@ -551,6 +555,7 @@ def build_context(cfg, since):
         # Meet and Gemini often finish writing files an hour or more after the call.
         "recordings": {
             "meetings_folder_id": cfg["meetings_folder_id"],
+            "folder_timezone": cfg["meetings_timezone"],
             "calendar_id": cfg["calendar_id"],
             "created_after": iso(since),
             # Every day from the one before `since` through today, so a late file

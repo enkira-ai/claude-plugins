@@ -17,6 +17,10 @@ Output (stdout): JSON
 
 Usage:
   meeting_files.py [--timezone America/New_York] [--allow-weak] < input.json
+
+--timezone is the zone folder names are written and read in. Pass the same one on
+every run for a given meetings folder (`context.recordings.folder_timezone`), or
+existing folders' times are misread.
 """
 
 import argparse
@@ -169,6 +173,8 @@ def names_compatible(name, names, strict=False):
 
     `strict` is for files with no meeting-specific title: a named one (say a screen
     recording) joins only a meeting with a matching real name, never an unnamed one."""
+    if MEET_CODE.fullmatch(name or "") and any(MEET_CODE.fullmatch(n) and n != name for n in names):
+        return False  # two Meet codes are two calls
     if is_placeholder(name):
         return True
     real = [n for n in names if not is_placeholder(n)]
