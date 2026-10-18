@@ -66,6 +66,7 @@ DEFAULT_CONFIG = {
     "calendar_id": "",            # shared calendar to read meetings from (e.g. admin@novaserve.ai)
     "slack_channels": [],         # [{"name": "technology", "id": "C…"}] summarized for everyone
     "evening_after_hour": 15,     # a run at/after this local hour previews tomorrow's meetings
+    "meetings_folder_id": "",     # Drive folder holding one folder per meeting; empty → no recordings section
 }
 
 NOISE_PREFIXES = ("<local-command", "<command-name>", "<command-message>",
@@ -544,6 +545,22 @@ def build_context(cfg, since):
             "addresses": aliases,
             "whole_mailbox": cfg["owner"],
             "after_query": f"after:{int(since.timestamp())}",
+        },
+        # Meeting recordings, transcripts and notes that landed in Drive since the
+        # last brief. Meetings that started up to a day before `since` still count:
+        # Meet and Gemini often finish writing files an hour or more after the call.
+        "recordings": {
+            "meetings_folder_id": cfg["meetings_folder_id"],
+            "calendar_id": cfg["calendar_id"],
+            "created_after": iso(since),
+            "folder_days": sorted({(since.astimezone(tz) - timedelta(days=1)).date().isoformat(),
+                                   since.astimezone(tz).date().isoformat(),
+                                   now.date().isoformat()}),
+            "events_start_local": (since.astimezone(tz) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S"),
+            "events_end_local": now.strftime("%Y-%m-%dT%H:%M:%S"),
+            "timezone": cfg["timezone"],
+            "attendee_emails": aliases,
+            "all_meetings": cfg["owner"],
         },
     }
 
