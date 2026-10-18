@@ -227,7 +227,7 @@ def plan(files, folders, tz, allow_weak=False):
                     if best is None or gap < best:
                         target, best = g, gap
             elif (target is None and not is_placeholder(it["name"])
-                  and norm(it["name"]) in {norm(n) for n in g["names"]}):
+                  and names_compatible(it["name"], g["names"], strict=True)):
                 target = g
         if target is None:
             target = {"day": day, "start": it["start"] if it["has_time"] else None,

@@ -510,6 +510,17 @@ def mark_sent(cfg):
     print(f"recorded last_sent={iso(now_utc())} for profile {cfg['name']}")
 
 
+def folder_days(since, zone):
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(zone)
+    except Exception:
+        tz = timezone.utc
+    first = since.astimezone(tz).date() - timedelta(days=1)
+    last = now_utc().astimezone(tz).date()
+    return [(first + timedelta(days=d)).isoformat() for d in range((last - first).days + 1)]
+
+
 def build_context(cfg, since):
     """Windows and identities for the connector reads the skill performs."""
     try:
@@ -558,10 +569,9 @@ def build_context(cfg, since):
             "folder_timezone": cfg["meetings_timezone"],
             "calendar_id": cfg["calendar_id"],
             "created_after": iso(since),
-            # Every day from the one before `since` through today, so a late file
-            # finds its meeting's existing folder even across a weekend.
-            "folder_days": [(since.astimezone(tz).date() + timedelta(days=d)).isoformat()
-                            for d in range(-1, (now.date() - since.astimezone(tz).date()).days + 1)],
+            # Every day from the one before `since` through today, in the folders'
+            # own zone, so a late file finds its meeting's existing folder.
+            "folder_days": folder_days(since, cfg["meetings_timezone"]),
             "events_start_local": (since.astimezone(tz) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S"),
             "events_end_local": now.strftime("%Y-%m-%dT%H:%M:%S"),
             "timezone": cfg["timezone"],
