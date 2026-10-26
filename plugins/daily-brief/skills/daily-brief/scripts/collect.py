@@ -501,7 +501,7 @@ def _repo_digest(repo, since, cfg, errors, prev_head):
         # commits (the head included) are the ones listed, the oldest are counted.
         total = cmp.get("total_commits") or 0
         last = max(1, -(-total // 100))
-        first = max(1, last - DIGEST_MAX_LISTED // 100 + 1)
+        first = max(0, total - DIGEST_MAX_LISTED) // 100 + 1  # page of the oldest commit kept
         listed = list(cmp.get("commits") or []) if first == 1 else []
         for page in range(max(first, 2), last + 1):
             more = (compare(out["base"], errors, page) or {}).get("commits") or []
