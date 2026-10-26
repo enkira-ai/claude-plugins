@@ -402,8 +402,8 @@
     {
       "name": "daily-brief",
       "source": "./plugins/daily-brief",
-      "description": "Scheduled dev briefs by email/Slack, one profile per teammate: the day's meetings, PRs awaiting their review ranked by urgency, PR blockers and progress, where the owner stopped in Claude sessions, Slack/email that needs them, the latest meeting notes and recordings (filed one folder per meeting in Drive), and PRs merged/opened in watched repos",
-      "version": "1.4.0",
+      "description": "Scheduled dev briefs by email/Slack, one profile per teammate: the day's meetings, PRs awaiting their review ranked by urgency, PR blockers and progress, where the owner stopped in Claude sessions, a daily progress and design digest of chosen repos, Slack/email that needs them, the latest meeting notes and recordings (filed one folder per meeting in Drive), and PRs merged/opened in watched repos",
+      "version": "1.5.0",
       "author": {
         "name": "Enkira AI"
       },
