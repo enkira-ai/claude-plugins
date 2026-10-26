@@ -491,15 +491,18 @@ def _repo_digest(repo, since, cfg, errors, prev_head):
 
     # List every commit in the range (paginated); only the newest are read in detail.
     if cmp:
+        # Pages run oldest first, so past the cap read the last pages: the newest
+        # commits (the head included) are the ones listed, the oldest are counted.
         total = cmp.get("total_commits") or 0
-        listed, page = list(cmp.get("commits") or []), 1  # oldest first
-        while len(listed) < min(total, DIGEST_MAX_LISTED):
-            page += 1
+        last = max(1, -(-total // 100))
+        first = max(1, last - DIGEST_MAX_LISTED // 100 + 1)
+        listed = list(cmp.get("commits") or []) if first == 1 else []
+        for page in range(max(first, 2), last + 1):
             more = (compare(out["base"], errors, page) or {}).get("commits") or []
             if not more:
                 break
             listed += more
-        listed = listed[:DIGEST_MAX_LISTED][::-1]
+        listed = listed[-DIGEST_MAX_LISTED:][::-1]
     else:  # the repository was created in the window: everything reachable is new
         listed, page = [], 0
         while len(listed) < DIGEST_MAX_LISTED:
