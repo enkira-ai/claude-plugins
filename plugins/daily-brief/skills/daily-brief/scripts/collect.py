@@ -390,7 +390,8 @@ def collect_github(cfg, since, errors):
 # Documents carry the design: plans, requirements, roadmaps, ADRs, specs and agent
 # instructions. Everything else is summarized from its path and size.
 DESIGN_PATH = re.compile(r"\.(md|mdx|rst|adoc)$", re.I)
-DIGEST_MAX_COMMITS = 100
+DIGEST_MAX_COMMITS = 100        # commits read in detail (files), newest first
+DIGEST_MAX_LISTED = 1000        # commits listed at all; beyond this they're counted, not listed
 # A commit touching this many files is an import or a mass move (e.g. vendored
 # docs); its files are listed, but their text doesn't spend the digest's budget.
 DIGEST_BULK_FILES = 40
@@ -420,13 +421,16 @@ def _repo_digest(repo, since, cfg, errors, prev_head):
     (`prev_head`) to the branch's head now, so a commit counts when it lands,
     whatever its date. Without a recorded head (the first digest, or history
     rewritten past it), the range starts at the branch as it stood at `since`."""
+    out_since = iso(since)
     meta = gh_json(["api", f"repos/{repo}"], errors, f"digest {repo}")
     if not meta:
         return None
     branch = meta.get("default_branch") or "main"
     out = {"repo": repo, "url": meta.get("html_url"), "description": meta.get("description"),
            "default_branch": branch, "head": None, "base": None, "base_from": None,
-           "commits": [], "files": [], "files_changed": 0, "design_docs": [], "truncated": False}
+           "window_start": out_since, "checkpoint_reset": None,
+           "commits": [], "commits_total": 0, "omitted_commits": 0,
+           "files": [], "files_changed": 0, "design_docs": []}
     tip = gh_json(["api", f"repos/{repo}/commits/{branch}"], errors, f"digest head {repo}")
     head = (tip or {}).get("sha")
     if not head:
@@ -436,27 +440,35 @@ def _repo_digest(repo, since, cfg, errors, prev_head):
         out["base"], out["base_from"] = head, "last brief"
         return out
 
-    def compare(base):
-        return gh_json(["api", f"repos/{repo}/compare/{base}...{head}"], errors,
-                       f"digest compare {repo}") or None
+    def compare(base, errs, page=1):
+        # The first page also carries the range's files; later pages only commits.
+        return gh_json(["api", f"repos/{repo}/compare/{base}...{head}?per_page=100&page={page}"],
+                       errs, f"digest compare {repo}") or None
 
     cmp = None
     if prev_head:
-        cmp = compare(prev_head)
+        # A saved head that can no longer be compared (history rewritten, branch
+        # recreated) is expected to fail: note it and fall back, so a successful
+        # fallback can become the new checkpoint instead of failing forever.
+        probe = []
+        cmp = compare(prev_head, probe)
         if cmp and cmp.get("status") in ("ahead", "identical"):
             out["base"], out["base_from"] = prev_head, "last brief"
         elif cmp and (cmp.get("merge_base_commit") or {}).get("sha"):
             # History was rewritten past the last brief's head: start where the two meet.
             out["base"], out["base_from"] = cmp["merge_base_commit"]["sha"], "merge base with last brief"
-            cmp = compare(out["base"])
+            out["checkpoint_reset"] = f"history rewritten past {prev_head[:7]}"
+            cmp = compare(out["base"], errors)
         else:
+            out["checkpoint_reset"] = (f"saved head {prev_head[:7]} can't be compared"
+                                       + (f" ({probe[0].split(': ', 1)[-1][:120]})" if probe else ""))
             cmp = None
     seen = {head: tip}
     if not out["base"]:
         # Walk the branch's first parents back to the commit it pointed at when
         # the window opened; a merged branch's own older commits never qualify.
         sha = head
-        for _ in range(DIGEST_MAX_COMMITS):
+        for _ in range(DIGEST_MAX_LISTED):
             c = seen.get(sha) or gh_json(["api", f"repos/{repo}/commits/{sha}"], errors,
                                          f"digest commit {repo}@{sha[:7]}")
             if not c:
@@ -470,21 +482,40 @@ def _repo_digest(repo, since, cfg, errors, prev_head):
                 out["base_from"] = "repository created in window"
                 break
             sha = parents[0]["sha"]
+        else:
+            errors.append(f"digest base {repo}: more than {DIGEST_MAX_LISTED} commits since "
+                          f"{out_since}; window start not reached")
+            return out
         if out["base"]:
-            cmp = compare(out["base"])
+            cmp = compare(out["base"], errors)
 
+    # List every commit in the range (paginated); only the newest are read in detail.
     if cmp:
-        listed = cmp.get("commits") or []  # oldest first, at most 250
-        out["truncated"] = (cmp.get("total_commits") or 0) > len(listed)
-        listed = listed[::-1]
-    else:
-        listed = gh_json(["api", f"repos/{repo}/commits?sha={head}&per_page={DIGEST_MAX_COMMITS}"],
-                         errors, f"digest commits {repo}") or []
-        out["truncated"] = len(listed) >= DIGEST_MAX_COMMITS
-    if len(listed) > DIGEST_MAX_COMMITS:
-        listed, out["truncated"] = listed[:DIGEST_MAX_COMMITS], True
+        total = cmp.get("total_commits") or 0
+        listed, page = list(cmp.get("commits") or []), 1  # oldest first
+        while len(listed) < min(total, DIGEST_MAX_LISTED):
+            page += 1
+            more = (compare(out["base"], errors, page) or {}).get("commits") or []
+            if not more:
+                break
+            listed += more
+        listed = listed[:DIGEST_MAX_LISTED][::-1]
+    else:  # the repository was created in the window: everything reachable is new
+        listed, page = [], 0
+        while len(listed) < DIGEST_MAX_LISTED:
+            page += 1
+            more = gh_json(["api", f"repos/{repo}/commits?sha={head}&per_page=100&page={page}"],
+                           errors, f"digest commits {repo}") or []
+            listed += more
+            if len(more) < 100:
+                break
+        total = len(listed)
+    out["commits_total"] = max(total, len(listed))
+    # Past DIGEST_MAX_LISTED the oldest are counted, not listed; the brief says so.
+    out["omitted_commits"] = out["commits_total"] - len(listed)
     if not listed:
         return out
+    summaries, listed = listed[DIGEST_MAX_COMMITS:], listed[:DIGEST_MAX_COMMITS]
 
     with ThreadPoolExecutor(max_workers=6) as pool:
         details = list(pool.map(
@@ -524,6 +555,13 @@ def _repo_digest(repo, since, cfg, errors, prev_head):
             if f.get("previous_filename"):
                 entry["previous_path"] = f["previous_filename"]
     out["commits"].reverse()  # newest first, like the brief reads
+    for c in summaries:  # older commits beyond the detailed ones: what and who, no files
+        commit = c.get("commit") or {}
+        out["commits"].append({
+            "sha": (c.get("sha") or "")[:7], "url": c.get("html_url"),
+            "author": (c.get("author") or {}).get("login") or (commit.get("author") or {}).get("name"),
+            "date": (commit.get("committer") or {}).get("date"),
+            "subject": (commit.get("message") or "").split("\n")[0][:200], "detailed": False})
     for e in files.values():
         if e.pop("removed"):
             e["status"] = "removed"
@@ -571,33 +609,46 @@ def _repo_digest(repo, since, cfg, errors, prev_head):
 
 
 def digest_heads(cfg):
-    """{repo: head SHA} as of this profile's last sent brief."""
+    """Per repo, where this profile's next digest starts: {"head": SHA} the last
+    sent brief reported in full, or {"since": ISO} when no digest of it has yet
+    been read in full (the window start to keep until one is)."""
     try:
-        return json.loads((profile_dir(cfg) / "digest_heads.json").read_text())
+        raw = json.loads((profile_dir(cfg) / "digest_heads.json").read_text())
     except (OSError, ValueError):
         return {}
+    return {repo: v if isinstance(v, dict) else {"head": v} for repo, v in raw.items()}
 
 
 def record_digest_heads(cfg):
-    """On --mark-sent, remember the heads the sent brief's digest reported."""
+    """On --mark-sent, move each repo's checkpoint to the head the sent brief read
+    in full. An incomplete read keeps the old checkpoint; with none yet, it keeps
+    the window start, so the next brief covers the same work again."""
     try:
         report = json.loads((profile_dir(cfg) / "last_collect.json").read_text())
     except (OSError, ValueError):
         return
-    heads = digest_heads(cfg)
-    heads.update({repo: d["head"] for repo, d in (report.get("repo_digests") or {}).items()
-                  if d.get("head") and d.get("complete")})
-    if heads:
-        (profile_dir(cfg) / "digest_heads.json").write_text(json.dumps(heads, indent=2) + "\n")
+    marks = digest_heads(cfg)
+    for repo, d in (report.get("repo_digests") or {}).items():
+        if d.get("head") and d.get("complete"):
+            marks[repo] = {"head": d["head"]}
+        elif not (marks.get(repo) or {}).get("head") and d.get("window_start"):
+            prior = (marks.get(repo) or {}).get("since")
+            marks[repo] = {"since": min(filter(None, (prior, d["window_start"])))}
+    if marks:
+        (profile_dir(cfg) / "digest_heads.json").write_text(json.dumps(marks, indent=2) + "\n")
 
 
 def collect_digests(cfg, since, errors):
     if not cfg["digest_repos"]:
         return None
     with ThreadPoolExecutor(max_workers=3) as pool:
-        heads = digest_heads(cfg)
-        found = list(pool.map(lambda r: collect_repo_digest(r, since, cfg, errors, heads.get(r)),
-                              cfg["digest_repos"]))
+        marks = digest_heads(cfg)
+
+        def one(repo):
+            mark = marks.get(repo) or {}
+            start = min(since, parse_ts(mark.get("since")) or since)
+            return collect_repo_digest(repo, start, cfg, errors, mark.get("head"))
+        found = list(pool.map(one, cfg["digest_repos"]))
     return {d["repo"]: d for d in found if d}
 
 
