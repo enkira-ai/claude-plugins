@@ -459,7 +459,13 @@ def _repo_digest(repo, since, cfg, errors, prev_head):
             out["base"], out["base_from"] = cmp["merge_base_commit"]["sha"], "merge base with last brief"
             out["checkpoint_reset"] = f"history rewritten past {prev_head[:7]}"
             cmp = compare(out["base"], errors)
+        elif probe and not all(re.search(r"HTTP (404|422)\b", e) for e in probe):
+            # A transient failure (5xx, rate limit, timeout) says nothing about the
+            # checkpoint: digest the window anyway, but keep the checkpoint for a retry.
+            errors.extend(probe)
+            cmp = None
         else:
+            # Confirmed gone: the saved commit no longer exists or shares no history.
             out["checkpoint_reset"] = (f"saved head {prev_head[:7]} can't be compared"
                                        + (f" ({probe[0].split(': ', 1)[-1][:120]})" if probe else ""))
             cmp = None
