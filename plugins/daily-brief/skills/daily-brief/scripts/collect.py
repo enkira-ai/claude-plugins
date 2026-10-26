@@ -422,7 +422,7 @@ def collect_repo_digest(repo, since, cfg, errors):
                               f"digest commit {repo}@{c['sha'][:7]}") or c, listed))
 
     files = {}
-    for d in reversed(details):  # oldest first, so `status` keeps the first change
+    for d in reversed(details):  # oldest first: `status` keeps the first change, `removed` the last
         commit = d.get("commit") or {}
         message = commit.get("message") or ""
         subject, _, body = message.partition("\n")
@@ -448,11 +448,16 @@ def collect_repo_digest(repo, since, cfg, errors):
             entry["deletions"] += f.get("deletions") or 0
             entry["commits"] += 1
             entry["only_bulk"] = entry["only_bulk"] and bulk
-            if f.get("status") == "removed":
-                entry["status"] = "removed"
+            # A file deleted and restored in the window exists at the head.
+            entry["removed"] = f.get("status") == "removed"
             if f.get("previous_filename"):
                 entry["previous_path"] = f["previous_filename"]
     out["commits"].reverse()  # newest first, like the brief reads
+    for e in files.values():
+        if e.pop("removed"):
+            e["status"] = "removed"
+        elif e["status"] == "removed":  # existed before the window, deleted, then restored
+            e["status"] = "modified"
     # The budget goes first to the documents worked on most, then to those
     # nearest the root (plans and briefs before deep reference material).
     ranked = sorted(files.values(), key=lambda e: (
@@ -471,19 +476,20 @@ def collect_repo_digest(repo, since, cfg, errors):
                     for e in files.values()):
         cmp = gh_json(["api", f"repos/{repo}/compare/{base}...{head}"], errors,
                       f"digest compare {repo}")
+        # The compare API lists at most 300 files and leaves out large patches;
+        # a document it skips is read whole at the head below instead of dropped.
         patches = {f.get("filename"): f.get("patch") for f in (cmp or {}).get("files") or []}
     budget = cfg["digest_total_chars"]
     for e in out["files"]:
         if not e["design"] or e["only_bulk"] or e["status"] == "removed" or budget <= 0:
             continue
         limit = min(cfg["digest_doc_chars"], budget)
-        if e["status"] == "added" and e["path"] not in patches:
+        text, kind = (patches.get(e["path"]), "diff") if e["status"] != "added" else (None, "text")
+        if not text:
             text = gh_raw(["api", "-H", "Accept: application/vnd.github.raw+json",
                            f"repos/{repo}/contents/{e['path']}?ref={head}"],
                           errors, f"digest file {repo}:{e['path']}")
             kind = "text"
-        else:
-            text, kind = patches.get(e["path"]), "diff"
         if not text:
             continue
         doc = {"path": e["path"], "status": e["status"], "kind": kind, "content": trim(text, limit)}
