@@ -9,6 +9,12 @@ Sources:
     PRs with CI/review state, assigned issues, recent mentions, the user's recent
     activity (commits, merged PRs, closed issues), and every issue/PR created or
     merged in the watched repos since the last brief.
+  * For each repo in the profile's `digest_repos`: every commit that landed on
+    its default branch since the head the last sent brief reported, the files
+    each one changed, and the text of the design documents that changed (new
+    documents as they stand at the head, edited ones as one diff over the range)
+    — the repo's daily progress and design digest, which PR lists miss when
+    work lands directly.
   * The windows and identities the skill needs to read Google Calendar, Slack and
     Gmail through the claude.ai connectors (`context`). Those reads happen in the
     skill, because the connectors are not reachable from this script.
@@ -69,6 +75,10 @@ DEFAULT_CONFIG = {
     "evening_after_hour": 15,     # a run at/after this local hour previews tomorrow's meetings
     "meetings_folder_id": "",     # Drive folder holding one folder per meeting; empty → no recordings section
     "meetings_timezone": "",      # zone of the meeting folders' names; empty → the shared top-level timezone
+    # Repo digest: daily progress and design changes pushed to these repos
+    "digest_repos": [],           # "owner/name" or bare "name"; empty → no digest section
+    "digest_doc_chars": 4000,     # per design document: its text if new, its diff if edited
+    "digest_total_chars": 40000,  # all design documents together, per repo
 }
 
 NOISE_PREFIXES = ("<local-command", "<command-name>", "<command-message>",
@@ -111,6 +121,7 @@ def load_profiles(path):
                                     or shared.get("timezone") or DEFAULT_CONFIG["timezone"])
         cfg["repos"] = [r if "/" in r else f"{cfg['org']}/{r}" for r in cfg["repos"]]
         cfg["exclude_repos"] = [r if "/" in r else f"{cfg['org']}/{r}" for r in cfg["exclude_repos"]]
+        cfg["digest_repos"] = [r if "/" in r else f"{cfg['org']}/{r}" for r in cfg["digest_repos"]]
         profiles[cfg["name"]] = cfg
     return profiles
 
@@ -155,6 +166,19 @@ def gh_json(args, errors, label):
     except json.JSONDecodeError:
         errors.append(f"{label}: unparseable gh output")
         return []
+
+
+def gh_raw(args, errors, label):
+    """Plain-text output of a gh call (e.g. a file's raw contents), or None."""
+    try:
+        out = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=90)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        errors.append(f"{label}: {exc}")
+        return None
+    if out.returncode != 0:
+        errors.append(f"{label}: {out.stderr.strip()[:300]}")
+        return None
+    return out.stdout
 
 
 def trim(text, limit):
@@ -361,6 +385,282 @@ def collect_github(cfg, since, errors):
     return out
 
 
+# ---------------------------------------------------------------- repo digest
+
+# Documents carry the design: plans, requirements, roadmaps, ADRs, specs and agent
+# instructions. Everything else is summarized from its path and size.
+DESIGN_PATH = re.compile(r"\.(md|mdx|rst|adoc)$", re.I)
+DIGEST_MAX_COMMITS = 100        # commits read in detail (files), newest first
+DIGEST_MAX_LISTED = 1000        # commits listed at all; beyond this they're counted, not listed
+# A commit touching this many files is an import or a mass move (e.g. vendored
+# docs); its files are listed, but their text doesn't spend the digest's budget.
+DIGEST_BULK_FILES = 40
+DIGEST_MAX_FILES = 150
+
+
+def collect_repo_digest(repo, since, cfg, errors, prev_head=None):
+    """Collect one repo's digest; `complete` says whether the whole range was read,
+    so a failed read never moves the checkpoint past work nobody reported."""
+    own = []
+    try:
+        out = _repo_digest(repo, since, cfg, own, prev_head)
+    finally:
+        errors.extend(own)
+    if out is not None:
+        # A design document that couldn't be read is reported, but doesn't hold
+        # the range back: its commits and files were still collected.
+        out["complete"] = bool(out.get("head")) and all(e.startswith("digest file ") for e in own)
+    return out
+
+
+def _repo_digest(repo, since, cfg, errors, prev_head):
+    """What landed on `repo`'s default branch since the last brief: the commits,
+    the files they changed, and the design documents' text, for a progress digest.
+
+    The window is the range from the head the last sent brief reported
+    (`prev_head`) to the branch's head now, so a commit counts when it lands,
+    whatever its date. Without a recorded head (the first digest, or history
+    rewritten past it), the range starts at the branch as it stood at `since`."""
+    out_since = iso(since)
+    meta = gh_json(["api", f"repos/{repo}"], errors, f"digest {repo}")
+    if not meta:
+        return None
+    branch = meta.get("default_branch") or "main"
+    out = {"repo": repo, "url": meta.get("html_url"), "description": meta.get("description"),
+           "default_branch": branch, "head": None, "base": None, "base_from": None,
+           "window_start": out_since, "checkpoint_reset": None,
+           "commits": [], "commits_total": 0, "omitted_commits": 0,
+           "files": [], "files_changed": 0, "design_docs": []}
+    tip = gh_json(["api", f"repos/{repo}/commits/{branch}"], errors, f"digest head {repo}")
+    head = (tip or {}).get("sha")
+    if not head:
+        return out
+    out["head"] = head
+    if prev_head == head:
+        out["base"], out["base_from"] = head, "last brief"
+        return out
+
+    def compare(base, errs, page=1):
+        # The first page also carries the range's files; later pages only commits.
+        return gh_json(["api", f"repos/{repo}/compare/{base}...{head}?per_page=100&page={page}"],
+                       errs, f"digest compare {repo}") or None
+
+    cmp = None
+    if prev_head:
+        # A saved head that can no longer be compared (history rewritten, branch
+        # recreated) is expected to fail: note it and fall back, so a successful
+        # fallback can become the new checkpoint instead of failing forever.
+        probe = []
+        cmp = compare(prev_head, probe)
+        if cmp and cmp.get("status") in ("ahead", "identical"):
+            out["base"], out["base_from"] = prev_head, "last brief"
+        elif cmp and (cmp.get("merge_base_commit") or {}).get("sha"):
+            # History was rewritten past the last brief's head: start where the two meet.
+            out["base"], out["base_from"] = cmp["merge_base_commit"]["sha"], "merge base with last brief"
+            out["checkpoint_reset"] = f"history rewritten past {prev_head[:7]}"
+            cmp = compare(out["base"], errors)
+        elif probe and not all(re.search(r"HTTP (404|422)\b", e) for e in probe):
+            # A transient failure (5xx, rate limit, timeout) says nothing about the
+            # checkpoint: digest the window anyway, but keep the checkpoint for a retry.
+            errors.extend(probe)
+            cmp = None
+        else:
+            # Confirmed gone: the saved commit no longer exists or shares no history.
+            out["checkpoint_reset"] = (f"saved head {prev_head[:7]} can't be compared"
+                                       + (f" ({probe[0].split(': ', 1)[-1][:120]})" if probe else ""))
+            cmp = None
+    seen = {head: tip}
+    if not out["base"]:
+        # Walk the branch's first parents back to the commit it pointed at when
+        # the window opened; a merged branch's own older commits never qualify.
+        sha = head
+        for _ in range(DIGEST_MAX_LISTED):
+            c = seen.get(sha) or gh_json(["api", f"repos/{repo}/commits/{sha}"], errors,
+                                         f"digest commit {repo}@{sha[:7]}")
+            if not c:
+                break
+            seen[sha] = c
+            if (parse_ts(((c.get("commit") or {}).get("committer") or {}).get("date")) or since) < since:
+                out["base"], out["base_from"] = sha, "branch at window start"
+                break
+            parents = c.get("parents") or []
+            if not parents:
+                out["base_from"] = "repository created in window"
+                break
+            sha = parents[0]["sha"]
+        else:
+            errors.append(f"digest base {repo}: more than {DIGEST_MAX_LISTED} commits since "
+                          f"{out_since}; window start not reached")
+            return out
+        if out["base"]:
+            cmp = compare(out["base"], errors)
+
+    # List every commit in the range (paginated); only the newest are read in detail.
+    if cmp:
+        # Pages run oldest first, so past the cap read the last pages: the newest
+        # commits (the head included) are the ones listed, the oldest are counted.
+        total = cmp.get("total_commits") or 0
+        last = max(1, -(-total // 100))
+        first = max(0, total - DIGEST_MAX_LISTED) // 100 + 1  # page of the oldest commit kept
+        listed = list(cmp.get("commits") or []) if first == 1 else []
+        for page in range(max(first, 2), last + 1):
+            more = (compare(out["base"], errors, page) or {}).get("commits") or []
+            if not more:
+                break
+            listed += more
+        listed = listed[-DIGEST_MAX_LISTED:][::-1]
+    else:  # the repository was created in the window: everything reachable is new
+        listed, page = [], 0
+        while len(listed) < DIGEST_MAX_LISTED:
+            page += 1
+            more = gh_json(["api", f"repos/{repo}/commits?sha={head}&per_page=100&page={page}"],
+                           errors, f"digest commits {repo}") or []
+            listed += more
+            if len(more) < 100:
+                break
+        total = len(listed)
+    out["commits_total"] = max(total, len(listed))
+    # Past DIGEST_MAX_LISTED the oldest are counted, not listed; the brief says so.
+    out["omitted_commits"] = out["commits_total"] - len(listed)
+    if not listed:
+        return out
+    summaries, listed = listed[DIGEST_MAX_COMMITS:], listed[:DIGEST_MAX_COMMITS]
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        details = list(pool.map(
+            lambda c: seen.get(c["sha"]) or gh_json(["api", f"repos/{repo}/commits/{c['sha']}"],
+                                                    errors, f"digest commit {repo}@{c['sha'][:7]}") or c,
+            listed))
+
+    files = {}
+    for d in reversed(details):  # oldest first: `status` keeps the first change, `removed` the last
+        commit = d.get("commit") or {}
+        message = commit.get("message") or ""
+        subject, _, body = message.partition("\n")
+        changed = d.get("files") or []
+        bulk = len(changed) >= DIGEST_BULK_FILES
+        out["commits"].append({
+            "sha": (d.get("sha") or "")[:7], "url": d.get("html_url"),
+            "author": (d.get("author") or {}).get("login") or (commit.get("author") or {}).get("name"),
+            "date": (commit.get("committer") or {}).get("date"),
+            "subject": subject[:200], "body": trim(body, 800),
+            "additions": (d.get("stats") or {}).get("additions"),
+            "deletions": (d.get("stats") or {}).get("deletions"),
+            "files": [f.get("filename") for f in changed[:20]],
+            "files_changed": len(changed), "bulk": bulk,
+        })
+        for f in changed:
+            path = f.get("filename")
+            entry = files.setdefault(path, {"path": path, "status": f.get("status"),
+                                            "additions": 0, "deletions": 0, "commits": 0,
+                                            "only_bulk": True,
+                                            "design": bool(DESIGN_PATH.search(path or ""))})
+            entry["additions"] += f.get("additions") or 0
+            entry["deletions"] += f.get("deletions") or 0
+            entry["commits"] += 1
+            entry["only_bulk"] = entry["only_bulk"] and bulk
+            # A file deleted and restored in the window exists at the head.
+            entry["removed"] = f.get("status") == "removed"
+            if f.get("previous_filename"):
+                entry["previous_path"] = f["previous_filename"]
+    out["commits"].reverse()  # newest first, like the brief reads
+    for c in summaries:  # older commits beyond the detailed ones: what and who, no files
+        commit = c.get("commit") or {}
+        out["commits"].append({
+            "sha": (c.get("sha") or "")[:7], "url": c.get("html_url"),
+            "author": (c.get("author") or {}).get("login") or (commit.get("author") or {}).get("name"),
+            "date": (commit.get("committer") or {}).get("date"),
+            "subject": (commit.get("message") or "").split("\n")[0][:200], "detailed": False})
+    for e in files.values():
+        if e.pop("removed"):
+            e["status"] = "removed"
+        elif e["status"] == "removed":  # existed before the window, deleted, then restored
+            e["status"] = "modified"
+
+    # The range's own file list is the net change from base to head, which beats
+    # replaying commits; it holds at most 300 files and leaves out large patches.
+    cmp_files = {f.get("filename"): f for f in (cmp or {}).get("files") or []}
+    complete = cmp is not None and len(cmp_files) < 300
+    for path, e in files.items():
+        if path in cmp_files:
+            e["status"] = cmp_files[path].get("status") or e["status"]
+        elif complete:
+            e["status"] = "unchanged"  # changed and changed back within the window
+    patches = {k: f.get("patch") for k, f in cmp_files.items()}
+
+    # The budget goes first to the documents worked on most, then to those
+    # nearest the root (plans and briefs before deep reference material).
+    ranked = sorted(files.values(), key=lambda e: (
+        not e["design"], e["only_bulk"], -e["commits"], e["path"].count("/"), e["path"]))
+    out["files_changed"] = len(ranked)
+    out["files"] = ranked[:DIGEST_MAX_FILES]
+
+    # Design text: a new document as it stands at the head; an edited one as one
+    # diff across the range, or whole at the head when the range left it out.
+    budget = cfg["digest_total_chars"]
+    for e in out["files"]:
+        if (not e["design"] or e["only_bulk"] or e["status"] in ("removed", "unchanged")
+                or budget <= 0):
+            continue
+        limit = min(cfg["digest_doc_chars"], budget)
+        text, kind = (patches.get(e["path"]), "diff") if e["status"] != "added" else (None, "text")
+        if not text:
+            text = gh_raw(["api", "-H", "Accept: application/vnd.github.raw+json",
+                           f"repos/{repo}/contents/{e['path']}?ref={head}"],
+                          errors, f"digest file {repo}:{e['path']}")
+            kind = "text"
+        if not text:
+            continue
+        doc = {"path": e["path"], "status": e["status"], "kind": kind, "content": trim(text, limit)}
+        budget -= len(doc["content"])
+        out["design_docs"].append(doc)
+    return out
+
+
+def digest_heads(cfg):
+    """Per repo, where this profile's next digest starts: {"head": SHA} the last
+    sent brief reported in full, or {"since": ISO} when no digest of it has yet
+    been read in full (the window start to keep until one is)."""
+    try:
+        raw = json.loads((profile_dir(cfg) / "digest_heads.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    return {repo: v if isinstance(v, dict) else {"head": v} for repo, v in raw.items()}
+
+
+def record_digest_heads(cfg):
+    """On --mark-sent, move each repo's checkpoint to the head the sent brief read
+    in full. An incomplete read keeps the old checkpoint; with none yet, it keeps
+    the window start, so the next brief covers the same work again."""
+    try:
+        report = json.loads((profile_dir(cfg) / "last_collect.json").read_text())
+    except (OSError, ValueError):
+        return
+    marks = digest_heads(cfg)
+    for repo, d in (report.get("repo_digests") or {}).items():
+        if d.get("head") and d.get("complete"):
+            marks[repo] = {"head": d["head"]}
+        elif not (marks.get(repo) or {}).get("head") and d.get("window_start"):
+            prior = (marks.get(repo) or {}).get("since")
+            marks[repo] = {"since": min(filter(None, (prior, d["window_start"])))}
+    if marks:
+        (profile_dir(cfg) / "digest_heads.json").write_text(json.dumps(marks, indent=2) + "\n")
+
+
+def collect_digests(cfg, since, errors):
+    if not cfg["digest_repos"]:
+        return None
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        marks = digest_heads(cfg)
+
+        def one(repo):
+            mark = marks.get(repo) or {}
+            start = min(since, parse_ts(mark.get("since")) or since)
+            return collect_repo_digest(repo, start, cfg, errors, mark.get("head"))
+        found = list(pool.map(one, cfg["digest_repos"]))
+    return {d["repo"]: d for d in found if d}
+
+
 # ------------------------------------------------------------------- sessions
 
 def norm_identity(value):
@@ -508,6 +808,7 @@ def mark_sent(cfg):
     d = profile_dir(cfg)
     d.mkdir(parents=True, exist_ok=True)
     (d / "last_sent").write_text(iso(now_utc()) + "\n")
+    record_digest_heads(cfg)
     print(f"recorded last_sent={iso(now_utc())} for profile {cfg['name']}")
 
 
@@ -654,11 +955,13 @@ def main():
 
     since = resolve_since(args.since, cfg)
     errors = []
-    with ThreadPoolExecutor(max_workers=2) as pool:
+    with ThreadPoolExecutor(max_workers=3) as pool:
         gh_future = pool.submit(collect_github, cfg, since, errors)
+        digest_future = pool.submit(collect_digests, cfg, since, errors)
         sessions_future = (pool.submit(collect_sessions, cfg, since, errors)
                            if cfg["local_sessions"] else None)
         github = gh_future.result()
+        digests = digest_future.result()
         sessions = sessions_future.result() if sessions_future else None
 
     report = {
@@ -672,6 +975,7 @@ def main():
         "repos": cfg["repos"],
         "github": github,
         "sessions": sessions,
+        "repo_digests": digests,
         "context": build_context(cfg, since),
         "errors": errors,
     }
