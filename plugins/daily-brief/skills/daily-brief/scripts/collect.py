@@ -398,6 +398,21 @@ DIGEST_MAX_FILES = 150
 
 
 def collect_repo_digest(repo, since, cfg, errors, prev_head=None):
+    """Collect one repo's digest; `complete` says whether the whole range was read,
+    so a failed read never moves the checkpoint past work nobody reported."""
+    own = []
+    try:
+        out = _repo_digest(repo, since, cfg, own, prev_head)
+    finally:
+        errors.extend(own)
+    if out is not None:
+        # A design document that couldn't be read is reported, but doesn't hold
+        # the range back: its commits and files were still collected.
+        out["complete"] = bool(out.get("head")) and all(e.startswith("digest file ") for e in own)
+    return out
+
+
+def _repo_digest(repo, since, cfg, errors, prev_head):
     """What landed on `repo`'s default branch since the last brief: the commits,
     the files they changed, and the design documents' text, for a progress digest.
 
@@ -571,7 +586,7 @@ def record_digest_heads(cfg):
         return
     heads = digest_heads(cfg)
     heads.update({repo: d["head"] for repo, d in (report.get("repo_digests") or {}).items()
-                  if d.get("head")})
+                  if d.get("head") and d.get("complete")})
     if heads:
         (profile_dir(cfg) / "digest_heads.json").write_text(json.dumps(heads, indent=2) + "\n")
 
