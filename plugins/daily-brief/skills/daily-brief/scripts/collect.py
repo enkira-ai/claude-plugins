@@ -809,6 +809,8 @@ def collect_topics(cfg, since, errors):
                 break
             total = found.get("total_count") or 0
             items.extend(found.get("items") or [])
+            if found.get("incomplete_results"):  # GitHub timed out: partial matches
+                ok = False
             if len(items) >= total or not found.get("items"):
                 break
         complete = ok and len(items) >= total
