@@ -15,6 +15,14 @@ Sources:
     documents as they stand at the head, edited ones as one diff over the range)
     — the repo's daily progress and design digest, which PR lists miss when
     work lands directly.
+  * Optional per profile: `trackers` (an umbrella issue's sub-issue tree, e.g. a
+    refactor's epics and their children, with what closed or opened since the
+    last brief), `topics` (issues and PRs anywhere in the org that mention the
+    person's subjects, kept only from repos the person can read), and
+    `agent_state_repos` (the `.planning/STATE.md` that GSD-style agent sessions
+    keep, on the default branch and the branches the person pushed lately —
+    where their agent sessions stopped, for people whose sessions don't run on
+    this machine).
   * The windows and identities the skill needs to read Google Calendar, Slack and
     Gmail through the claude.ai connectors (`context`). Those reads happen in the
     skill, because the connectors are not reachable from this script.
@@ -63,7 +71,9 @@ DEFAULT_CONFIG = {
     "slack_user": "",             # Slack user/channel ID for the DM; empty → no Slack
     "timezone": "UTC",
     "schedule": ["09:00", "21:00"],
-    "max_lookback_hours": 36,     # cap for --since auto when the last brief is old
+    "schedule_timezone": "",      # zone the schedule times are in; empty → timezone
+    "days": [],                   # weekdays to send on (["Mon", "Thu"]); empty → every day
+    "max_lookback_hours": 36,     # cap for --since auto (a `days` profile defaults to its longest gap)
     "body_chars": 1500,
     "recent_sessions_floor": 3,   # always include this many latest sessions
     # Calendar / Slack / Gmail (read by the skill through the connectors)
@@ -79,7 +89,13 @@ DEFAULT_CONFIG = {
     "digest_repos": [],           # "owner/name" or bare "name"; empty → no digest section
     "digest_doc_chars": 4000,     # per design document: its text if new, its diff if edited
     "digest_total_chars": 40000,  # all design documents together, per repo
+    # Progress of a tracked effort, the person's subjects, and their agent sessions
+    "trackers": [],               # [{"name": …, "repo": "panbot", "issue": 1258}] umbrella issues
+    "topics": [],                 # [{"name": "Menu V5", "keywords": ["Menu V5", "menu-v5"]}]
+    "agent_state_repos": [],      # repos whose .planning/STATE.md records their agent sessions
 }
+
+WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 NOISE_PREFIXES = ("<local-command", "<command-name>", "<command-message>",
                   "<system-reminder>", "Caveat:", "[Request interrupted")
@@ -122,6 +138,22 @@ def load_profiles(path):
         cfg["repos"] = [r if "/" in r else f"{cfg['org']}/{r}" for r in cfg["repos"]]
         cfg["exclude_repos"] = [r if "/" in r else f"{cfg['org']}/{r}" for r in cfg["exclude_repos"]]
         cfg["digest_repos"] = [r if "/" in r else f"{cfg['org']}/{r}" for r in cfg["digest_repos"]]
+        cfg["agent_state_repos"] = [r if "/" in r else f"{cfg['org']}/{r}"
+                                    for r in cfg["agent_state_repos"]]
+        cfg["schedule_timezone"] = cfg["schedule_timezone"] or cfg["timezone"]
+        days = []
+        for d in cfg["days"]:
+            key = str(d).strip()[:3].title()
+            if key not in WEEKDAYS:
+                sys.exit(f"profile {cfg['name']!r}: unknown day {d!r} (use {', '.join(WEEKDAYS)})")
+            days.append(key)
+        cfg["days"] = sorted(set(days), key=WEEKDAYS.index)
+        # A profile sent on some weekdays only must look back over its longest gap
+        # (Thu → Mon is four days), or --since auto would drop the start of it.
+        if cfg["days"] and "max_lookback_hours" not in entry and "max_lookback_hours" not in shared:
+            idx = [WEEKDAYS.index(d) for d in cfg["days"]]
+            gaps = [(idx[(i + 1) % len(idx)] - idx[i]) % 7 or 7 for i in range(len(idx))]
+            cfg["max_lookback_hours"] = max(36, 24 * max(gaps) + 12)
         profiles[cfg["name"]] = cfg
     return profiles
 
@@ -661,6 +693,214 @@ def collect_digests(cfg, since, errors):
     return {d["repo"]: d for d in found if d}
 
 
+# ------------------------------------------------- trackers, topics, agent state
+
+TRACKER_MAX_OPEN = 15       # open children listed per epic; the rest are counted
+
+
+def gh_api_list(path, errors, label):
+    """One page (100) of a REST list endpoint; `truncated` when it may have more."""
+    items = gh_json(["api", f"{path}{'&' if '?' in path else '?'}per_page=100"], errors, label)
+    return (items if isinstance(items, list) else []), len(items or []) >= 100
+
+
+def slim_issue_rest(it):
+    return {"number": it.get("number"), "title": it.get("title"), "url": it.get("html_url"),
+            "state": it.get("state"), "state_reason": it.get("state_reason"),
+            "created": it.get("created_at"), "updated": it.get("updated_at"),
+            "closed": it.get("closed_at"),
+            "assignees": [a.get("login") for a in it.get("assignees") or []],
+            "labels": [l.get("name") for l in it.get("labels") or []],
+            "is_pr": bool(it.get("pull_request")),
+            "sub_issues": it.get("sub_issues_summary")}
+
+
+def collect_tracker(tracker, since, cfg, errors):
+    """An umbrella issue, its sub-issues (the epics) and theirs (the work items),
+    with what closed or opened since the last brief."""
+    repo = tracker.get("repo") or ""
+    repo = repo if "/" in repo else f"{cfg['org']}/{repo}"
+    num = tracker.get("issue")
+    label = f"tracker {repo}#{num}"
+    root = gh_json(["api", f"repos/{repo}/issues/{num}"], errors, label)
+    if not root:
+        return None
+    epics, truncated = gh_api_list(f"repos/{repo}/issues/{num}/sub_issues", errors, label)
+
+    def epic(it):
+        e = slim_issue_rest(it)
+        kids, more = gh_api_list(f"repos/{repo}/issues/{e['number']}/sub_issues", errors,
+                                 f"{label} → #{e['number']}")
+        kids = [slim_issue_rest(k) for k in kids]
+        e["children_truncated"] = more
+        e["closed_since"] = [k for k in kids if k["state"] == "closed"
+                             and (parse_ts(k["closed"]) or since) >= since and k["closed"]]
+        e["opened_since"] = [k for k in kids if k["created"] and parse_ts(k["created"]) >= since]
+        open_kids = sorted((k for k in kids if k["state"] == "open"),
+                           key=lambda k: k["updated"] or "", reverse=True)
+        e["open_children"] = open_kids[:TRACKER_MAX_OPEN]
+        e["open_children_omitted"] = max(0, len(open_kids) - TRACKER_MAX_OPEN)
+        e["closed_children"] = sum(1 for k in kids if k["state"] == "closed")
+        return e
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        tree = list(pool.map(epic, epics))
+    r = slim_issue_rest(root)
+    return {"name": tracker.get("name") or r["title"], "repo": repo, "root": r,
+            "epics": tree, "epics_truncated": truncated,
+            "closed_since": [e for e in tree if e["state"] == "closed" and e["closed"]
+                             and parse_ts(e["closed"]) >= since],
+            "opened_since": [e for e in tree if e["created"] and parse_ts(e["created"]) >= since]}
+
+
+def collect_trackers(cfg, since, errors):
+    if not cfg["trackers"]:
+        return None
+    found = [collect_tracker(t, since, cfg, errors) for t in cfg["trackers"]]
+    return [t for t in found if t]
+
+
+def readable_repos(user, repos, errors):
+    """The repos `user` can read, from the collaborator-permission endpoint; a repo
+    whose permission can't be read is treated as unreadable."""
+    def perm(repo):
+        try:
+            out = subprocess.run(["gh", "api", f"repos/{repo}/collaborators/{user}/permission",
+                                  "-q", ".permission"], capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            errors.append(f"permission {repo}: {exc}")
+            return repo, False
+        if out.returncode != 0:
+            errors.append(f"permission {repo}: {out.stderr.strip()[:200]}")
+            return repo, False
+        return repo, out.stdout.strip() in ("admin", "maintain", "write", "triage", "read")
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        return {r for r, ok in pool.map(perm, sorted(repos)) if ok}
+
+
+def collect_topics(cfg, since, errors):
+    """Issues and PRs anywhere in the org, updated since the last brief, that
+    mention one of the person's topics. Items from repos the person can't read
+    are dropped, so a brief never leaks a repo they have no access to."""
+    if not cfg["topics"]:
+        return None
+    day = since.strftime("%Y-%m-%d")
+    excluded = {r.lower() for r in cfg["exclude_repos"]}
+
+    def search(topic):
+        # `gh search issues` quotes an OR query as one phrase, so call the API.
+        words = [w.replace('"', "") for w in topic.get("keywords") or [topic.get("name")] if w][:6]
+        query = f"org:{cfg['org']} updated:>={day} (" + " OR ".join(f'"{w}"' for w in words) + ")"
+        found = gh_json(["api", "-X", "GET", "search/issues", "-f", f"q={query}",
+                         "-f", "sort=updated", "-f", "per_page=100"],
+                        errors, f"topic {topic.get('name')}")
+        items = (found or {}).get("items") if isinstance(found, dict) else []
+        return topic, items or []
+
+    def repo_name(i):
+        return "/".join((i.get("repository_url") or "").split("/")[-2:])
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(search, cfg["topics"]))
+    repos = {repo_name(i) for _, items in results for i in items}
+    repos = {r for r in repos if r and r.lower() not in excluded}
+    readable = readable_repos(cfg["github_user"], repos, errors)
+    out = {}
+    for topic, items in results:
+        kept = []
+        for i in items:
+            repo = repo_name(i)
+            if repo not in readable or (parse_ts(i.get("updated_at")) or since) < since:
+                continue
+            s = slim_issue_rest(i)
+            s.update({"repo": repo, "author": (i.get("user") or {}).get("login"),
+                      "body": trim(i.get("body"), 500),
+                      "new": bool(parse_ts(i.get("created_at")) and parse_ts(i["created_at"]) >= since),
+                      "closed_since": bool(parse_ts(i.get("closed_at"))
+                                           and parse_ts(i["closed_at"]) >= since)})
+            kept.append(s)
+        out[topic.get("name") or ", ".join(topic.get("keywords") or [])] = {
+            "keywords": topic.get("keywords") or [], "items": kept,
+            "dropped_unreadable": sum(1 for i in items if repo_name(i) not in readable)}
+    return out
+
+
+STATE_FIELDS = ("status", "stopped_at", "last_updated", "last_activity", "last_activity_desc",
+                "milestone", "milestone_name", "current_phase", "current_phase_name")
+
+
+def parse_state_md(text):
+    """The front matter fields and the 'Current Position' section of a GSD STATE.md."""
+    fields, body = {}, text
+    m = re.match(r"^---\n(.*?)\n---\n?(.*)$", text, re.S)
+    if m:
+        body = m.group(2)
+        for line in m.group(1).splitlines():
+            km = re.match(r"^([a-z_]+):\s*(.*)$", line)
+            if km and km.group(1) in STATE_FIELDS:
+                fields[km.group(1)] = trim(km.group(2).strip().strip('"'), 600)
+        prog = re.search(r"^progress:\n((?:[ \t]+.*\n?)+)", m.group(1), re.M)
+        if prog:
+            fields["progress"] = {k: v.strip() for k, v in
+                                  re.findall(r"^\s+([a-z_]+):\s*(.*)$", prog.group(1), re.M)}
+    pos = re.search(r"^## Current Position\s*\n(.*?)(?=^## |\Z)", body, re.S | re.M)
+    if pos:
+        fields["current_position"] = trim(pos.group(1), 800)
+    return fields
+
+
+def collect_agent_state(cfg, since, errors):
+    """Where the person's agent sessions stopped, read from the STATE.md their
+    GSD-style sessions keep: on the default branch, and on each branch they
+    pushed in the last month (newest first, at most five per repo)."""
+    if not cfg["agent_state_repos"]:
+        return None
+    user = cfg["github_user"]
+
+    def one(repo):
+        meta = gh_json(["api", f"repos/{repo}"], errors, f"agent state {repo}")
+        if not meta:
+            return None
+        default = meta.get("default_branch") or "main"
+        acts, _ = gh_api_list(f"repos/{repo}/activity?actor={user}&time_period=month",
+                              errors, f"agent state {repo} activity")
+        refs, deleted = {}, set()
+        for a in acts:  # newest first
+            ref = (a.get("ref") or "").removeprefix("refs/heads/")
+            if not ref or ref == (a.get("ref") or ""):
+                continue
+            if a.get("activity_type") == "branch_deletion":
+                deleted.add(ref)
+            elif ref not in deleted and ref not in refs:
+                refs[ref] = a.get("timestamp")
+        branches = [(default, refs.pop(default, None))] + list(refs.items())[:5]
+        seen, found = set(), []
+        for ref, pushed in branches:
+            commit = gh_json(["api", f"repos/{repo}/commits/{ref}"], [], "")
+            text = gh_raw(["api", "-H", "Accept: application/vnd.github.raw+json",
+                           f"repos/{repo}/contents/.planning/STATE.md?ref={ref}"], [], "")
+            entry = {"ref": ref, "default": ref == default, "last_push_by_user": pushed,
+                     "last_commit": {
+                         "sha": (commit.get("sha") or "")[:7] if commit else None,
+                         "date": ((commit or {}).get("commit") or {}).get("committer", {}).get("date"),
+                         "author": ((commit or {}).get("author") or {}).get("login"),
+                         "message": (((commit or {}).get("commit") or {}).get("message") or "")
+                         .split("\n")[0][:200],
+                         "url": (commit or {}).get("html_url")}}
+            if text:
+                key = text.strip()
+                entry["state"] = parse_state_md(text) if key not in seen else "same as above"
+                entry["state_url"] = f"https://github.com/{repo}/blob/{ref}/.planning/STATE.md"
+                seen.add(key)
+            found.append(entry)
+        return {"repo": repo, "url": meta.get("html_url"), "default_branch": default,
+                "branches": found,
+                "has_state": any("state" in b for b in found)}
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        return [r for r in pool.map(one, cfg["agent_state_repos"]) if r]
+
+
 # ------------------------------------------------------------------- sessions
 
 def norm_identity(value):
@@ -911,7 +1151,8 @@ def resolve_since(arg, cfg):
         return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
     prev = last_sent(cfg)
     if prev is None:
-        return now - timedelta(hours=24)
+        # A first brief covers a day, or the whole gap for a profile sent on some days only.
+        return now - timedelta(hours=cfg["max_lookback_hours"] if cfg["days"] else 24)
     return max(prev, floor)
 
 
@@ -932,7 +1173,8 @@ def main():
     profiles = load_profiles(args.config)
     if args.list_profiles:
         print(json.dumps([{k: p[k] for k in ("name", "github_user", "email_to", "slack_user",
-                                              "timezone", "schedule", "local_sessions")}
+                                              "timezone", "schedule", "schedule_timezone",
+                                              "days", "local_sessions")}
                           for p in profiles.values()], indent=2))
         return
     cfg = pick_profile(profiles, args.profile)
@@ -955,13 +1197,19 @@ def main():
 
     since = resolve_since(args.since, cfg)
     errors = []
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    with ThreadPoolExecutor(max_workers=6) as pool:
         gh_future = pool.submit(collect_github, cfg, since, errors)
         digest_future = pool.submit(collect_digests, cfg, since, errors)
+        tracker_future = pool.submit(collect_trackers, cfg, since, errors)
+        topics_future = pool.submit(collect_topics, cfg, since, errors)
+        state_future = pool.submit(collect_agent_state, cfg, since, errors)
         sessions_future = (pool.submit(collect_sessions, cfg, since, errors)
                            if cfg["local_sessions"] else None)
         github = gh_future.result()
         digests = digest_future.result()
+        trackers = tracker_future.result()
+        topics = topics_future.result()
+        agent_state = state_future.result()
         sessions = sessions_future.result() if sessions_future else None
 
     report = {
@@ -976,6 +1224,9 @@ def main():
         "github": github,
         "sessions": sessions,
         "repo_digests": digests,
+        "trackers": trackers,
+        "topics": topics,
+        "agent_state": agent_state,
         "context": build_context(cfg, since),
         "errors": errors,
     }
