@@ -696,6 +696,7 @@ def collect_digests(cfg, since, errors):
 # ------------------------------------------------- trackers, topics, agent state
 
 TRACKER_MAX_OPEN = 15       # open children listed per epic; the rest are counted
+TOPIC_MAX_PAGES = 10        # the search API returns at most 1000 results
 
 
 def gh_api_list(path, errors, label):
@@ -705,7 +706,8 @@ def gh_api_list(path, errors, label):
 
 
 def slim_issue_rest(it):
-    return {"number": it.get("number"), "title": it.get("title"), "url": it.get("html_url"),
+    return {"repo": "/".join((it.get("repository_url") or "").split("/")[-2:]) or None,
+            "number": it.get("number"), "title": it.get("title"), "url": it.get("html_url"),
             "state": it.get("state"), "state_reason": it.get("state_reason"),
             "created": it.get("created_at"), "updated": it.get("updated_at"),
             "closed": it.get("closed_at"),
@@ -729,8 +731,10 @@ def collect_tracker(tracker, since, cfg, errors):
 
     def epic(it):
         e = slim_issue_rest(it)
-        kids, more = gh_api_list(f"repos/{repo}/issues/{e['number']}/sub_issues", errors,
-                                 f"{label} → #{e['number']}")
+        # A sub-issue can live in another repository; read its children there.
+        own = e["repo"] or repo
+        kids, more = gh_api_list(f"repos/{own}/issues/{e['number']}/sub_issues", errors,
+                                 f"{label} → {own}#{e['number']}")
         kids = [slim_issue_rest(k) for k in kids]
         e["children_truncated"] = more
         e["closed_since"] = [k for k in kids if k["state"] == "closed"
@@ -789,24 +793,37 @@ def collect_topics(cfg, since, errors):
 
     def search(topic):
         # `gh search issues` quotes an OR query as one phrase, so call the API.
+        # Read every page (the search API stops at 1000 results), so the window
+        # never advances past matches that weren't read.
         words = [w.replace('"', "") for w in topic.get("keywords") or [topic.get("name")] if w][:6]
         query = f"org:{cfg['org']} updated:>={day} (" + " OR ".join(f'"{w}"' for w in words) + ")"
-        found = gh_json(["api", "-X", "GET", "search/issues", "-f", f"q={query}",
-                         "-f", "sort=updated", "-f", "per_page=100"],
-                        errors, f"topic {topic.get('name')}")
-        items = (found or {}).get("items") if isinstance(found, dict) else []
-        return topic, items or []
+        items, total, ok = [], 0, True
+        for page in range(1, TOPIC_MAX_PAGES + 1):
+            errs = []
+            found = gh_json(["api", "-X", "GET", "search/issues", "-f", f"q={query}",
+                             "-f", "sort=updated", "-f", "per_page=100", "-f", f"page={page}"],
+                            errs, f"topic {topic.get('name')} page {page}")
+            errors.extend(errs)
+            if errs or not isinstance(found, dict):
+                ok = False
+                break
+            total = found.get("total_count") or 0
+            items.extend(found.get("items") or [])
+            if len(items) >= total or not found.get("items"):
+                break
+        complete = ok and len(items) >= total
+        return topic, items, complete, total
 
     def repo_name(i):
         return "/".join((i.get("repository_url") or "").split("/")[-2:])
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(search, cfg["topics"]))
-    repos = {repo_name(i) for _, items in results for i in items}
+    repos = {repo_name(i) for _, items, _, _ in results for i in items}
     repos = {r for r in repos if r and r.lower() not in excluded}
     readable = readable_repos(cfg["github_user"], repos, errors)
     out = {}
-    for topic, items in results:
+    for topic, items, complete, total in results:
         kept = []
         for i in items:
             repo = repo_name(i)
@@ -821,6 +838,7 @@ def collect_topics(cfg, since, errors):
             kept.append(s)
         out[topic.get("name") or ", ".join(topic.get("keywords") or [])] = {
             "keywords": topic.get("keywords") or [], "items": kept,
+            "complete": complete, "matches": total,
             "dropped_unreadable": sum(1 for i in items if repo_name(i) not in readable)}
     return out
 
