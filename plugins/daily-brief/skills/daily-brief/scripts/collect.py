@@ -51,6 +51,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, time as dtime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 CONFIG_PATH = Path(os.environ.get(
     "DAILY_BRIEF_CONFIG", Path.home() / ".config" / "daily-brief" / "config.json"))
@@ -896,9 +897,16 @@ def collect_agent_state(cfg, since, errors):
         branches = [(default, refs.pop(default, None))] + list(refs.items())[:5]
         seen, found = set(), []
         for ref, pushed in branches:
-            commit = gh_json(["api", f"repos/{repo}/commits/{ref}"], [], "")
+            # Branch names may hold URL-special characters (`fix/#123`, `a&b`).
+            enc = quote(ref, safe="")
+            commit = gh_json(["api", f"repos/{repo}/commits/{enc}"], errors,
+                             f"agent state {repo}@{ref} commit")
+            errs = []
             text = gh_raw(["api", "-H", "Accept: application/vnd.github.raw+json",
-                           f"repos/{repo}/contents/.planning/STATE.md?ref={ref}"], [], "")
+                           f"repos/{repo}/contents/.planning/STATE.md?ref={enc}"],
+                          errs, f"agent state {repo}@{ref} STATE.md")
+            # No STATE.md on a branch is normal; anything else is a failed read.
+            errors.extend(e for e in errs if not re.search(r"HTTP 404\b", e))
             entry = {"ref": ref, "default": ref == default, "last_push_by_user": pushed,
                      "last_commit": {
                          "sha": (commit.get("sha") or "")[:7] if commit else None,
@@ -910,7 +918,8 @@ def collect_agent_state(cfg, since, errors):
             if text:
                 key = text.strip()
                 entry["state"] = parse_state_md(text) if key not in seen else "same as above"
-                entry["state_url"] = f"https://github.com/{repo}/blob/{ref}/.planning/STATE.md"
+                entry["state_url"] = (f"https://github.com/{repo}/blob/{quote(ref, safe='/')}"
+                                      "/.planning/STATE.md")
                 seen.add(key)
             found.append(entry)
         return {"repo": repo, "url": meta.get("html_url"), "default_branch": default,
